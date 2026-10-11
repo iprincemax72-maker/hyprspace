@@ -736,7 +736,8 @@ impl Phone {
         let file = journal::path(&hub.journals_dir, &name);
         drop(hub);
         tokio::task::spawn_blocking(move || {
-            let send = |entries| {
+            let send = |mut entries: Vec<Entry>| {
+                entries.retain(for_phone);
                 let _ = tx.unbounded_send(Down::Transcript {
                     thread,
                     entries,
@@ -1112,8 +1113,21 @@ impl Hub {
     }
 }
 
+// the phone app reads a batch whole, and one kind it doesn't know loses the batch
+fn for_phone(e: &Entry) -> bool {
+    !matches!(
+        e,
+        Entry::Run {
+            event: hyprspace_proto::RunEvent::Compacted { .. }
+        }
+    )
+}
+
 fn watcher(thread: u64, live: Arc<AtomicBool>, tx: UnboundedSender<Down>) -> journal::Watcher {
     Box::new(move |e: &Entry| {
+        if !for_phone(e) {
+            return live.load(Ordering::Relaxed);
+        }
         live.load(Ordering::Relaxed)
             && tx
                 .unbounded_send(Down::Transcript {

@@ -44,6 +44,7 @@ pub struct Slider {
     track: Rc<Cell<Option<Bounds<Pixels>>>>,
     knob: Glide,
     window: Glide,
+    speed: Glide,
 }
 
 impl Slider {
@@ -260,9 +261,14 @@ pub(super) fn body<H: Host>(m: &ModelMenu, spec: &Spec, cx: &mut Context<H>) -> 
         .child(model)
         .child(icon("chevron-right", 11., colors::text3()))
         .on_click(cx.listener(|h: &mut H, _: &ClickEvent, window, cx| to_models(h, window, cx)));
+    let tip = match &spec.default_effort {
+        Some(d) => format!("Reset to {}, the model's default", effort_label(d)),
+        None => "Reset to the model's default".into(),
+    };
     let reset = changed.then(|| {
         div()
             .id("effort-reset")
+            .tooltip(crate::widgets::tip_text(tip))
             .absolute()
             .top(px(0.))
             .right(px(0.))
@@ -412,63 +418,36 @@ pub(super) fn body<H: Host>(m: &ModelMenu, spec: &Spec, cx: &mut Context<H>) -> 
             .child(listen)
     });
 
-    let window = spec.long.map(|long| {
-        let pill = s.window.toward(if long { SEGMENT } else { 0. }).apply(
-            "window-pill",
-            div()
-                .absolute()
-                .top(px(2.))
-                .left(px(2.))
-                .w(px(SEGMENT))
-                .h(px(22.))
-                .rounded(px(6.))
-                .bg(colors::ink(0.1)),
-            |d, x| d.ml(px(x)),
-        );
-        let segment = |on: bool, label: &'static str| {
-            div()
-                .id(("window", on as usize))
-                .w(px(SEGMENT))
-                .h(px(22.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .text_size(px(11.5))
-                .cursor_pointer()
-                .text_color(if long == on {
-                    colors::text1()
-                } else {
-                    colors::text3()
-                })
-                .child(label)
-                .on_click(cx.listener(move |h: &mut H, _: &ClickEvent, _, cx| {
-                    h.choose(Choice::Long(on), cx);
-                    cx.notify();
-                }))
-        };
+    let window = spec.long.map(|on| {
+        switch(
+            "window",
+            "Context",
+            &s.window,
+            on,
+            ["Standard", "1M"],
+            Choice::Long,
+            cx,
+        )
+    });
+    let speed = spec.fast.map(|on| {
         div()
             .flex()
-            .items_center()
-            .pt(px(10.))
-            .border_t_1()
-            .border_color(colors::ink(0.08))
+            .flex_col()
+            .gap(px(6.))
+            .child(switch(
+                "speed",
+                "Speed",
+                &s.speed,
+                on,
+                ["Standard", "Fast"],
+                Choice::Fast,
+                cx,
+            ))
             .child(
                 div()
-                    .flex_1()
-                    .text_size(px(11.5))
+                    .text_size(px(11.))
                     .text_color(colors::text3())
-                    .child("Context"),
-            )
-            .child(
-                div()
-                    .relative()
-                    .flex()
-                    .p(px(2.))
-                    .rounded(px(8.))
-                    .bg(colors::ink(0.05))
-                    .child(pill)
-                    .child(segment(false, "Standard"))
-                    .child(segment(true, "1M")),
+                    .child("Fast uses usage credits, not your plan."),
             )
     });
 
@@ -480,7 +459,76 @@ pub(super) fn body<H: Host>(m: &ModelMenu, spec: &Spec, cx: &mut Context<H>) -> 
         .child(head)
         .children(slider)
         .children(window)
+        .children(speed)
         .into_any_element()
+}
+
+fn switch<H: Host>(
+    id: &'static str,
+    name: &'static str,
+    glide: &Glide,
+    on: bool,
+    labels: [&'static str; 2],
+    choice: fn(bool) -> Choice,
+    cx: &mut Context<H>,
+) -> gpui::Div {
+    let pill = glide.toward(if on { SEGMENT } else { 0. }).apply(
+        name,
+        div()
+            .absolute()
+            .top(px(2.))
+            .left(px(2.))
+            .w(px(SEGMENT))
+            .h(px(22.))
+            .rounded(px(6.))
+            .bg(colors::ink(0.1)),
+        |d, x| d.ml(px(x)),
+    );
+    let segment = |value: bool, label: &'static str| {
+        div()
+            .id((id, value as usize))
+            .w(px(SEGMENT))
+            .h(px(22.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .text_size(px(11.5))
+            .cursor_pointer()
+            .text_color(if on == value {
+                colors::text1()
+            } else {
+                colors::text3()
+            })
+            .child(label)
+            .on_click(cx.listener(move |h: &mut H, _: &ClickEvent, _, cx| {
+                h.choose(choice(value), cx);
+                cx.notify();
+            }))
+    };
+    div()
+        .flex()
+        .items_center()
+        .pt(px(10.))
+        .border_t_1()
+        .border_color(colors::ink(0.08))
+        .child(
+            div()
+                .flex_1()
+                .text_size(px(11.5))
+                .text_color(colors::text3())
+                .child(name),
+        )
+        .child(
+            div()
+                .relative()
+                .flex()
+                .p(px(2.))
+                .rounded(px(8.))
+                .bg(colors::ink(0.05))
+                .child(pill)
+                .child(segment(false, labels[0]))
+                .child(segment(true, labels[1])),
+        )
 }
 
 #[cfg(test)]

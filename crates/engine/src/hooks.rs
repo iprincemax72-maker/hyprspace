@@ -142,7 +142,13 @@ fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
 /// Write the scoped settings file that wires claude's hooks back to the listener on `port`, and
 /// return its path for `claude --settings <path>`. `exe` is the binary that handles the
 /// `agent-hook` and `status-line` subcommands. None means launch claude unhooked rather than fail.
-pub fn write_settings(dir: &Path, port: u16, exe: &Path, session: &str) -> Option<PathBuf> {
+pub fn write_settings(
+    dir: &Path,
+    port: u16,
+    exe: &Path,
+    session: &str,
+    fast: bool,
+) -> Option<PathBuf> {
     if !valid_session(session) {
         return None;
     }
@@ -153,7 +159,7 @@ pub fn write_settings(dir: &Path, port: u16, exe: &Path, session: &str) -> Optio
     // every hook runs the same command; the event name comes from the payload claude puts on stdin
     let cmd = format!("\"{exe}\" agent-hook {port} \"{session}\"");
     let entry = json!([{ "hooks": [ { "type": "command", "command": cmd } ] }]);
-    let settings = json!({
+    let mut settings = json!({
         "hooks": {
             "UserPromptSubmit": entry,   // turn started: working
             "Stop": entry,               // turn ended: done
@@ -180,6 +186,9 @@ pub fn write_settings(dir: &Path, port: u16, exe: &Path, session: &str) -> Optio
             "command": format!("\"{exe}\" status-line {port} \"{session}\""),
         },
     });
+    if fast {
+        settings["fastMode"] = json!(true);
+    }
     std::fs::write(&path, serde_json::to_string_pretty(&settings).ok()?).ok()?;
     Some(path)
 }
@@ -422,7 +431,7 @@ mod tests {
     fn settings_file_points_every_hook_at_us() {
         let dir = tempfile::tempdir().unwrap();
         let exe = Path::new("/apps/hyprspace");
-        let path = write_settings(dir.path(), 4242, exe, "s1").unwrap();
+        let path = write_settings(dir.path(), 4242, exe, "s1", false).unwrap();
         let v = crate::util::read_json(&path).unwrap();
         for hook in [
             "UserPromptSubmit",
@@ -442,7 +451,10 @@ mod tests {
                 .unwrap()
                 .contains("status-line 4242")
         );
-        assert!(write_settings(dir.path(), 1, exe, "../x").is_none());
+        assert!(v.get("fastMode").is_none());
+        let fast = write_settings(dir.path(), 4242, exe, "s1", true).unwrap();
+        assert_eq!(crate::util::read_json(&fast).unwrap()["fastMode"], true);
+        assert!(write_settings(dir.path(), 1, exe, "../x", false).is_none());
         cleanup(dir.path(), "s1");
         assert!(!path.exists());
     }

@@ -205,3 +205,22 @@ fn a_computer_pairs_drives_a_terminal_reads_a_journal_and_a_folder() {
     client.shutdown();
     host.shutdown();
 }
+
+#[test]
+fn a_message_for_an_offline_computer_fails_instead_of_vanishing() {
+    let dir = tempfile::tempdir().unwrap();
+    let (tx, mut rx) = futures::channel::mpsc::unbounded();
+    let peers = super::Peers::new(tx, dir.path());
+    let id = SessionId(4);
+    peers.command(PeerCommand::Bind {
+        id,
+        peer: "mac".into(),
+        thread: 9,
+    });
+    let send = Command::Send {
+        id,
+        prompt: Prompt::text("hi"),
+    };
+    assert!(peers.route(send).is_none());
+    assert!(matches!(rx.try_recv(), Ok(Event::Failed { id: got, .. }) if got == id));
+}

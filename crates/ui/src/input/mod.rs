@@ -14,8 +14,8 @@ use std::ops::Range;
 use gpui::{
     App, Bounds, ClipboardEntry, ClipboardItem, Context, CursorStyle, EventEmitter, FocusHandle,
     Focusable, Image, IntoElement, KeyBinding, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, Pixels, Point, Render, SharedString, Window, WrappedLine, actions, div, point,
-    prelude::*,
+    MouseUpEvent, Pixels, Point, Render, ScrollHandle, SharedString, Window, WrappedLine, actions,
+    div, point, prelude::*, px,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -120,6 +120,10 @@ pub struct TextInput {
     line_height: Pixels,
     history: Vec<String>,
     recall: Option<usize>,
+    scroll: ScrollHandle,
+    revealed: (usize, usize),
+    thumb: Option<Bounds<Pixels>>,
+    grab: Option<Pixels>,
 }
 
 impl EventEmitter<InputEvent> for TextInput {}
@@ -144,6 +148,10 @@ impl TextInput {
             line_height: Pixels::ZERO,
             history: Vec::new(),
             recall: None,
+            scroll: ScrollHandle::new(),
+            revealed: (0, 0),
+            thumb: None,
+            grab: None,
         }
     }
 
@@ -543,6 +551,14 @@ impl TextInput {
     /// and a triple-click the line, as editors do.
     fn mouse_down(&mut self, e: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         window.focus(&self.focus, cx);
+        if let Some(t) = self.thumb
+            && (t.left() - px(4.)..t.right() + px(4.)).contains(&e.position.x)
+            && (t.top()..t.bottom()).contains(&e.position.y)
+        {
+            self.grab = Some(e.position.y - t.top());
+            cx.notify();
+            return;
+        }
         let at = self.mouse_offset(e.position);
         match e.click_count {
             2 => {
@@ -572,12 +588,26 @@ impl TextInput {
         }
     }
 
-    fn mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, _: &mut Context<Self>) {
+    fn mouse_up(&mut self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
         self.selecting = false;
+        if self.grab.take().is_some() {
+            cx.notify();
+        }
     }
 
     fn mouse_move(&mut self, e: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
-        if self.selecting {
+        if let (Some(grab), Some(t)) = (self.grab, self.thumb) {
+            let view = self.scroll.bounds();
+            let max = self.scroll.max_offset().y;
+            let track = view.size.height - px(4.) - t.size.height;
+            if track > Pixels::ZERO {
+                let at = (e.position.y - grab - view.top() - px(2.)) / track;
+                let mut off = self.scroll.offset();
+                off.y = -max * at.clamp(0., 1.);
+                self.scroll.set_offset(off);
+                cx.notify();
+            }
+        } else if self.selecting {
             self.select_to(self.mouse_offset(e.position), cx);
         }
     }
@@ -648,7 +678,25 @@ impl Focusable for TextInput {
 }
 
 impl Render for TextInput {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let text = TextElement::new(cx.entity());
+        let body = if self.multiline {
+            let mut max = window.viewport_size().height * 0.4;
+            if self.line_height > Pixels::ZERO {
+                max = self.line_height * (max / self.line_height).floor().max(1.);
+            }
+            div()
+                .id("input-scroll")
+                .w_full()
+                .max_h(max)
+                .pr(px(10.))
+                .overflow_y_scroll()
+                .track_scroll(&self.scroll)
+                .child(text)
+                .into_any_element()
+        } else {
+            text.into_any_element()
+        };
         div()
             .w_full()
             .key_context(CONTEXT)
@@ -685,7 +733,7 @@ impl Render for TextInput {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::mouse_up))
             .on_mouse_move(cx.listener(Self::mouse_move))
-            .child(TextElement::new(cx.entity()))
+            .child(body)
     }
 }
 

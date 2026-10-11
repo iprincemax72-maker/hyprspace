@@ -41,6 +41,8 @@ pub enum TranscriptEvent {
     Queue(Vec<Prompt>),
     Limited(Option<u64>),
     ResumeAt(Option<u64>),
+    ShowImage(PathBuf),
+    Commands(hyprspace_proto::Agent, Vec<String>),
 }
 
 pub struct TranscriptView {
@@ -431,12 +433,13 @@ impl TranscriptView {
         }
     }
 
-    pub fn repick(&mut self, model: String, effort: String, cx: &mut Context<Self>) {
+    pub fn repick(&mut self, model: String, effort: String, fast: bool, cx: &mut Context<Self>) {
         if self.model.running() {
             return;
         }
         self.pick_model(model, cx);
         self.pick_effort(effort, cx);
+        self.pick_fast(fast, cx);
     }
 
     fn pick_model(&mut self, model: String, cx: &mut Context<Self>) {
@@ -450,6 +453,10 @@ impl TranscriptView {
         }
         self.launch.model = model;
         self.repicked = true;
+        let id = self.launch.model.clone().unwrap_or_default();
+        if !crate::models::takes_fast(self.launch.agent, &id) {
+            self.launch.fast = false;
+        }
         // an effort the new model does not take would be refused at start
         if let (Some(cat), Some(effort)) = (&self.catalog, &self.launch.effort) {
             let id = self.launch.model.clone().unwrap_or_default();
@@ -472,6 +479,15 @@ impl TranscriptView {
         self.launch.model = Some(model);
         let size = if long { "1M" } else { "standard" };
         self.relaunch(format!("Context window set to {size}."), cx);
+    }
+
+    fn pick_fast(&mut self, fast: bool, cx: &mut Context<Self>) {
+        if fast == self.launch.fast {
+            return;
+        }
+        self.launch.fast = fast;
+        let state = if fast { "on" } else { "off" };
+        self.relaunch(format!("Fast mode {state}."), cx);
     }
 
     fn pick_effort(&mut self, effort: String, cx: &mut Context<Self>) {
@@ -526,6 +542,7 @@ impl TranscriptView {
     pub fn apply(&mut self, event: RunEvent, cx: &mut Context<Self>) {
         if let RunEvent::Commands { names } = &event {
             crate::suggest::set_commands(self.launch.agent, names.clone(), cx);
+            cx.emit(TranscriptEvent::Commands(self.launch.agent, names.clone()));
         }
         if let RunEvent::Started { thread, cwd, .. } = &event {
             self.repicked = false;
@@ -844,6 +861,7 @@ impl model_menu::Host for TranscriptView {
             efforts: catalog.efforts_for(&model).to_vec(),
             default_effort: catalog.model(&model).and_then(|m| m.default_effort.clone()),
             long: crate::models::takes_long(agent, &model).then(|| crate::models::is_long(&model)),
+            fast: crate::models::takes_fast(agent, &model).then_some(self.launch.fast),
             agent,
             model,
             effort: self.launch.effort.clone().unwrap_or_default(),
@@ -864,6 +882,7 @@ impl model_menu::Host for TranscriptView {
             Choice::Model(_, model) => self.pick_model(model, cx),
             Choice::Effort(effort) => self.pick_effort(effort, cx),
             Choice::Long(long) => self.pick_long(long, cx),
+            Choice::Fast(fast) => self.pick_fast(fast, cx),
         }
     }
 }

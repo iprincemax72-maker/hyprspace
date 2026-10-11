@@ -2,6 +2,7 @@
 // last picks. The UI owns the shape; the engine saves and loads it whole. Every field has a
 // default so a file written by an older build still loads.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -36,6 +37,7 @@ pub struct AppState {
     pub settle_after: SettleAfter,
     /// Whether a paired phone can reach the app, and over which networks.
     pub phone: PhonePrefs,
+    pub commands: BTreeMap<String, Vec<String>>,
 }
 
 impl Default for AppState {
@@ -54,6 +56,7 @@ impl Default for AppState {
             seen_version: String::new(),
             settle_after: SettleAfter::default(),
             phone: PhonePrefs::default(),
+            commands: BTreeMap::new(),
         }
     }
 }
@@ -421,6 +424,8 @@ pub struct Pick {
     pub agent: Agent,
     pub model: String,
     pub effort: String,
+    #[serde(default)]
+    pub fast: bool,
 }
 
 impl ComposerPrefs {
@@ -433,6 +438,7 @@ impl ComposerPrefs {
                 agent,
                 model: String::new(),
                 effort: String::new(),
+                fast: false,
             })
     }
 
@@ -574,11 +580,13 @@ mod tests {
             agent: Agent::Claude,
             model: "m".into(),
             effort: "high".into(),
+            fast: false,
         });
         p.set_pick(Pick {
             agent: Agent::Claude,
             model: "n".into(),
             effort: String::new(),
+            fast: false,
         });
         assert_eq!(p.picks.len(), 1);
         assert_eq!(p.pick(Agent::Claude).model, "n");

@@ -604,3 +604,15 @@ fn proofs_match_the_phones() {
         "Ty027fUmm9y1FhIoARQBY5b7pqndj_4jToliCUSyavk"
     );
 }
+
+#[test]
+fn the_phone_never_hears_of_a_compaction() {
+    use hyprspace_proto::RunEvent;
+    use hyprspace_proto::state::Entry;
+    let run = |event| Entry::Run { event };
+    assert!(!super::for_phone(&run(RunEvent::Compacted {
+        before: Some(2),
+        after: Some(1),
+    })));
+    assert!(super::for_phone(&run(RunEvent::Steered)));
+}

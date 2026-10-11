@@ -31,6 +31,7 @@ use crate::phone::{host_name, prove};
 type Ws = WebSocketStream<TlsStream<TcpStream>>;
 
 const DIAL: Duration = Duration::from_secs(6);
+const SILENT: Duration = Duration::from_secs(50);
 const MAX_MESSAGE: usize = 64 << 20;
 
 pub(super) async fn run(peers: Peers, id: String) {
@@ -48,8 +49,9 @@ pub(super) async fn run(peers: Peers, id: String) {
             }
             Err(e) => {
                 peers.offline(&id, Some(e));
-                if let Some(f) = find(&id, Duration::from_secs(3)).await {
-                    peers.moved(&id, f.hosts, f.port);
+                if let Some(f) = find(&id, Duration::from_secs(3)).await
+                    && peers.moved(&id, f.hosts, f.port)
+                {
                     continue;
                 }
             }
@@ -95,10 +97,11 @@ async fn session(peers: &Peers, saved: &Saved, ws: Ws) -> bool {
     peers.online(&saved.id, tx, version);
     let mut unsqueeze = Unsqueeze::default();
     let mut ping = tokio::time::interval(Duration::from_secs(20));
+    let mut heard = tokio::time::Instant::now();
     let mut forgotten = false;
     loop {
         tokio::select! {
-            msg = stream.next() => match msg {
+            msg = stream.next() => match msg.inspect(|_| heard = tokio::time::Instant::now()) {
                 Some(Ok(Message::Text(t))) => {
                     if let Ok(down) = serde_json::from_str::<Down>(&t) {
                         forgotten = matches!(down, Down::Denied { forget: true, .. });
@@ -127,7 +130,8 @@ async fn session(peers: &Peers, saved: &Saved, ws: Ws) -> bool {
                 None => break,
             },
             _ = ping.tick() => {
-                if sink.send(text(&Up::Ping)).await.is_err() {
+                // a host that slept or left the network never closes the connection
+                if heard.elapsed() > SILENT || sink.send(text(&Up::Ping)).await.is_err() {
                     break;
                 }
             }
@@ -405,13 +409,16 @@ fn decode(s: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         match bytes[i] {
-            b'%' if i + 2 < bytes.len() => match u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                Ok(b) => {
+            b'%' if i + 2 < bytes.len() => match std::str::from_utf8(&bytes[i + 1..i + 3])
+                .ok()
+                .and_then(|h| u8::from_str_radix(h, 16).ok())
+            {
+                Some(b) => {
                     out.push(b);
                     i += 3;
                     continue;
                 }
-                Err(_) => out.push(b'%'),
+                None => out.push(b'%'),
             },
             b => out.push(b),
         }
@@ -429,5 +436,6 @@ mod tests {
         assert_eq!(decode("Ash%27s%20PC"), "Ash's PC");
         assert_eq!(decode("100.64.1.2,192.168.1.5"), "100.64.1.2,192.168.1.5");
         assert_eq!(decode("50%"), "50%");
+        assert_eq!(decode("%aé"), "%aé");
     }
 }

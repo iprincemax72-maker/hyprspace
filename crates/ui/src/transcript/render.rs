@@ -3,6 +3,7 @@
 // until clicked, approval prompts with their buttons, and the pill-shaped box to reply or steer.
 
 use chrono::TimeZone;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -15,7 +16,7 @@ use hyprspace_proto::{RunStatus, Tool};
 
 use super::model::Item;
 use super::rows::{self, Row};
-use super::{TranscriptView, tool};
+use super::{TranscriptEvent, TranscriptView, tool};
 use crate::assets::{icon, mark};
 use crate::composer::model_menu::{self, Host as _, ModelMenu};
 use crate::pace::Looping;
@@ -233,7 +234,13 @@ fn working(v: &TranscriptView) -> AnyElement {
         .flex_none()
         .font_weight(FontWeight::MEDIUM)
         .text_color(colors::text2())
-        .child(if v.stopping { "Stopping" } else { "Working" })
+        .child(if v.stopping {
+            "Stopping"
+        } else if v.model.compacting {
+            "Compacting"
+        } else {
+            "Working"
+        })
         .looping(1800, |d, t| {
             d.opacity(0.55 + 0.45 * (0.5 + 0.5 * (t * std::f32::consts::TAU).cos()))
         });
@@ -1082,7 +1089,7 @@ fn composer(
     );
     let effort_chip = v
         .model_spec()
-        .filter(|s| !s.efforts.is_empty() || s.long.is_some())
+        .filter(|s| !s.efforts.is_empty() || s.long.is_some() || s.fast.is_some())
         .map(|spec| {
             model_menu::anchored_chip(
                 &v.effort_anchor,
@@ -1109,8 +1116,8 @@ fn composer(
             .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .on_click(cx.listener(|v, _: &ClickEvent, _, cx| v.submit(cx)))
     };
-    // one row like zeron's: attach, the prompt growing in the middle, then the model and send,
-    // the buttons staying on the prompt's last line
+    // the prompt across the whole width, and under it the model, effort and permission on the
+    // left with attach and send on the right
     let pill = div()
         .w_full()
         .flex()
@@ -1132,6 +1139,9 @@ fn composer(
             d.child(div().px(px(14.)).pt(px(12.)).child(attach::tray(
                 "thread-img",
                 &v.images,
+                cx.listener(|_, path: &PathBuf, _, cx| {
+                    cx.emit(TranscriptEvent::ShowImage(path.clone()))
+                }),
                 cx.listener(|v, ix: &usize, _, cx| {
                     if *ix < v.images.len() {
                         v.images.remove(*ix);
@@ -1143,20 +1153,14 @@ fn composer(
         .child(
             div()
                 .flex()
-                .items_end()
-                .gap(px(4.))
+                .flex_col()
+                .gap(px(6.))
                 .px(px(8.))
-                .py(px(8.))
-                .child(
-                    widgets::icon_button("thread-attach", "paperclip", 28.)
-                        .on_click(cx.listener(|v, _: &ClickEvent, _, cx| v.pick_images(cx))),
-                )
+                .pt(px(12.))
+                .pb(px(8.))
                 .child(
                     div()
-                        .flex_1()
-                        .min_w_0()
-                        .pl(px(2.))
-                        .pt(px(6.))
+                        .px(px(8.))
                         .text_size(px(14.))
                         .line_height(px(22.))
                         .child(v.input.clone()),
@@ -1164,12 +1168,24 @@ fn composer(
                 .child(
                     div()
                         .flex()
-                        .flex_none()
                         .items_center()
                         .gap(px(4.))
-                        .child(permission_chip(v, running, cx))
-                        .child(model_chip)
-                        .children(effort_chip)
+                        .child(
+                            div()
+                                .flex()
+                                .flex_1()
+                                .min_w_0()
+                                .items_center()
+                                .gap(px(4.))
+                                .child(model_chip)
+                                .children(effort_chip)
+                                .child(permission_chip(v, running, cx)),
+                        )
+                        .child(
+                            widgets::icon_button("thread-attach", "paperclip", 28.).on_click(
+                                cx.listener(|v, _: &ClickEvent, _, cx| v.pick_images(cx)),
+                            ),
+                        )
                         .child(action),
                 ),
         );
@@ -1403,7 +1419,7 @@ fn permission_chip(
                 .hover(|s| s.bg(colors::ink(0.06)))
                 .on_click(cx.listener(|v, e: &ClickEvent, _, cx| {
                     let at = e.position();
-                    v.perm_menu = Some(gpui::point(at.x - px(240.), at.y));
+                    v.perm_menu = Some(gpui::point(at.x - px(40.), at.y));
                     cx.notify();
                 }))
         })

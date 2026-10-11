@@ -145,6 +145,7 @@ pub fn import(dir: &Path) -> Option<AppState> {
                 agent,
                 model,
                 effort,
+                fast: false,
             });
         }
     }

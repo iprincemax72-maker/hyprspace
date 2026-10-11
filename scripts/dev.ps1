@@ -49,6 +49,7 @@ Remove-Item Env:NO_COLOR -ErrorAction SilentlyContinue
 Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue
 
 $script:app = $null
+$script:stamp = $null
 
 function Stop-App {
     if (-not $script:app -or $script:app.HasExited) { return }
@@ -73,9 +74,19 @@ function Build-And-Run {
         return
     }
     $build = $t.Elapsed.TotalSeconds
+    $stamp = (Get-Item $built).LastWriteTimeUtc
+    if ($script:app -and -not $script:app.HasExited -and $stamp -eq $script:stamp) {
+        Write-Host 'Nothing changed in the build. Watching for changes.' -ForegroundColor DarkGray
+        return
+    }
     Stop-App
     $exe = Join-Path $runDir 'hyprspace.exe'
-    Copy-Item $built $exe -Force
+    # a stopped app lets go of its exe a moment after it exits
+    foreach ($try in 1..20) {
+        try { Copy-Item $built $exe -Force -ErrorAction Stop; break }
+        catch { if ($try -eq 20) { throw } else { Start-Sleep -Milliseconds 250 } }
+    }
+    $script:stamp = $stamp
     $script:app = Start-Process $exe -WorkingDirectory $root -PassThru
     Write-Host ('Running the new build: built in {0:N1}s, swapped in {1:N1}s. Watching for changes.' -f $build, ($t.Elapsed.TotalSeconds - $build)) -ForegroundColor Green
 }

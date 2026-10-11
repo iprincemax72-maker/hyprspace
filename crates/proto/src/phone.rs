@@ -193,6 +193,8 @@ pub enum Ask {
         thread: u64,
         model: String,
         effort: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        fast: bool,
     },
 }
 
@@ -982,6 +984,7 @@ mod tests {
                     thread: 2,
                     model: "opus".into(),
                     effort: "high".into(),
+                    fast: false,
                 },
             },
             Up::Leave,

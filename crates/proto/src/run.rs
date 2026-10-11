@@ -37,6 +37,8 @@ pub struct Launch {
     /// A thread id from an earlier `Started` or the resume list. Claude only resumes in the
     /// folder the conversation started in, so its harness finds that folder itself.
     pub resume: Option<String>,
+    #[serde(default)]
+    pub fast: bool,
 }
 
 impl Launch {
@@ -48,6 +50,7 @@ impl Launch {
             effort: None,
             permission: Permission::default(),
             resume: None,
+            fast: false,
         }
     }
 }
@@ -93,13 +96,22 @@ pub enum RunEvent {
         cwd: PathBuf,
     },
     /// The slash commands and skills the CLI takes, without their slash. Not journaled.
-    Commands { names: Vec<String> },
+    Commands {
+        names: Vec<String>,
+    },
     /// A piece of the reply.
-    Text { text: String },
+    Text {
+        text: String,
+    },
     /// A piece of the model's visible reasoning.
-    Thinking { text: String },
+    Thinking {
+        text: String,
+    },
     /// A tool call began. The same id can come again with more detail filled in.
-    Tool { id: String, tool: Tool },
+    Tool {
+        id: String,
+        tool: Tool,
+    },
     /// A tool call ended. `output` is capped, for display, except a `Tool::Agent` call's,
     /// which is the subagent's whole report.
     ToolDone {
@@ -123,7 +135,10 @@ pub enum RunEvent {
     },
     /// A block of text a subagent wrote along the way. Its final report comes as the
     /// `ToolDone` of its `Tool::Agent` call.
-    SubagentText { parent: String, text: String },
+    SubagentText {
+        parent: String,
+        text: String,
+    },
     /// The agent started a run without a prompt, to pick up what a background subagent
     /// reported after the last run ended.
     Woke,
@@ -138,14 +153,29 @@ pub enum RunEvent {
     /// A prompt sent while the run was live joined it.
     Steered,
     /// Tokens the run used.
-    Usage { input: u64, output: u64 },
+    Usage {
+        input: u64,
+        output: u64,
+    },
     /// How full the model's context window is: the tokens the latest reply saw and wrote, out of
     /// the window's size.
-    Context { used: u64, window: u64 },
+    Context {
+        used: u64,
+        window: u64,
+    },
+    Compacting,
+    Compacted {
+        before: Option<u64>,
+        after: Option<u64>,
+    },
     /// Something went wrong that the user should see. The run may still go on.
-    Error { message: String },
+    Error {
+        message: String,
+    },
     /// The plan's usage limit stopped the run. `resets` is unix ms, when the CLI said.
-    Limited { resets: Option<u64> },
+    Limited {
+        resets: Option<u64>,
+    },
     Finished {
         status: RunStatus,
         ms: u64,
@@ -154,7 +184,9 @@ pub enum RunEvent {
         error: Option<String>,
     },
     /// The session is over: the CLI exited or could not start. `message` is user-facing.
-    Failed { message: String },
+    Failed {
+        message: String,
+    },
 }
 
 /// The user's answer to a `RunEvent::Approval`.

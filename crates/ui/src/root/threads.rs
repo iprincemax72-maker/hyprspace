@@ -359,11 +359,14 @@ impl Root {
                 let (cwd, run) = (cwd.clone(), run.clone());
                 let prompt = first.as_ref().map(typed);
                 let v = cx.new(|cx| TerminalView::new(session, client, cwd, run, prompt, cx));
-                let sub = cx.subscribe(&v, |root, _, e: &TerminalEvent, cx| match e {
+                let local = remote.is_none();
+                let sub = cx.subscribe(&v, move |root, _, e: &TerminalEvent, cx| match e {
                     // an image opens over the window, anything else in the viewer
                     TerminalEvent::OpenFile {
                         path, line: None, ..
-                    } if crate::attach::is_image(path) => root.show_image(path.clone(), cx),
+                    } if local && crate::attach::is_image(path) => {
+                        root.show_image(path.clone(), cx)
+                    }
                     TerminalEvent::OpenFile { path, line, col } => {
                         root.open_file(path.clone(), *line, *col, cx)
                     }
@@ -445,14 +448,16 @@ impl Root {
                 TranscriptEvent::Launch(l) => {
                     let model = l.model.clone().unwrap_or_default();
                     let effort = l.effort.clone().unwrap_or_default();
-                    let permission = l.permission;
+                    let (permission, fast) = (l.permission, l.fast);
                     self.ask_host(thread, |thread| Ask::Model {
                         thread,
                         model,
                         effort,
+                        fast,
                     });
                     self.ask_host(thread, |thread| Ask::Permission { thread, permission });
                 }
+                TranscriptEvent::ShowImage(path) => self.show_image(path.clone(), cx),
                 _ => {}
             }
             cx.notify();
@@ -522,8 +527,18 @@ impl Root {
                     launch.model = l.model.clone();
                     launch.effort = l.effort.clone();
                     launch.permission = l.permission;
+                    launch.fast = l.fast;
                 }
                 self.save();
+            }
+            TranscriptEvent::ShowImage(path) => self.show_image(path.clone(), cx),
+            TranscriptEvent::Commands(agent, names) => {
+                if self.state.commands.get(agent.cli()) != Some(names) {
+                    self.state
+                        .commands
+                        .insert(agent.cli().to_string(), names.clone());
+                    self.save();
+                }
             }
         }
         cx.notify();

@@ -55,6 +55,7 @@ pub struct Spec {
     pub default_effort: Option<String>,
     /// Whether the picked model is on its 1M window, when it can be. None: it has one window.
     pub long: Option<bool>,
+    pub fast: Option<bool>,
     /// A line at the bottom on what a change does.
     pub foot: Option<&'static str>,
 }
@@ -64,6 +65,7 @@ pub enum Choice {
     Effort(String),
     /// The 1M context window on or off.
     Long(bool),
+    Fast(bool),
 }
 
 /// The view a menu belongs to. Its focus handle is the prompt's, which gets the keyboard back
@@ -92,10 +94,14 @@ pub fn effort_chip_label(spec: &Spec) -> String {
         ("", Some(d)) => effort_label(d),
         (e, _) => effort_label(e),
     };
-    match spec.long {
-        Some(true) => format!("{level} · 1M"),
-        _ => level,
+    let mut out = level;
+    if spec.long == Some(true) {
+        out.push_str(" · 1M");
     }
+    if spec.fast == Some(true) {
+        out.push_str(" · Fast");
+    }
+    out
 }
 
 /// Counts openings, so each one eases in afresh.
@@ -112,6 +118,7 @@ pub struct ModelMenu {
     effort: bool,
     /// The agent the rail narrows the models to, or all of them.
     rail: Option<Agent>,
+    legacy: bool,
     /// This opening's number, so each opening eases in afresh.
     opened: usize,
     glide: Glide,
@@ -136,16 +143,21 @@ impl ModelMenu {
     }
 
     fn new(spec: &Spec, effort: bool, window: &mut Window, cx: &mut App) -> Self {
+        let legacy = spec
+            .models
+            .iter()
+            .any(|m| is_pick(spec, m) && is_legacy(spec, m));
         let m = Self {
             focus: cx.focus_handle(),
             scroll: ScrollHandle::new(),
-            hi: shown(spec, "", None)
+            hi: shown(spec, "", None, legacy)
                 .iter()
                 .position(|m| is_pick(spec, m))
                 .unwrap_or(0),
             query: String::new(),
             effort,
             rail: None,
+            legacy,
             opened: OPENED.fetch_add(1, Ordering::Relaxed),
             glide: Glide::default(),
             rail_glide: Glide::default(),
@@ -215,17 +227,49 @@ fn wheel<H: Host>(m: &ModelMenu, cx: &mut Context<H>) -> AnyElement {
     .into_any_element()
 }
 
-/// The models on the rail's agent whose name (or agent) has every word of `query`.
-fn shown<'a>(spec: &'a Spec, query: &str, rail: Option<Agent>) -> Vec<&'a Model> {
+/// The models on the rail's agent whose name (or agent) has every word of `query`, each agent's
+/// legacy ones last and left out while folded, unless a search is looking for them.
+fn shown<'a>(spec: &'a Spec, query: &str, rail: Option<Agent>, legacy: bool) -> Vec<&'a Model> {
     let q = query.to_lowercase();
-    spec.models
+    let all = agents(spec);
+    let mut out: Vec<&Model> = spec
+        .models
         .iter()
         .filter(|m| rail.is_none_or(|a| a == m.agent))
+        .filter(|m| legacy || !q.is_empty() || !is_legacy(spec, m))
         .filter(|m| {
             let hay = format!("{} {}", m.label, m.agent.name()).to_lowercase();
             q.split_whitespace().all(|w| hay.contains(w))
         })
-        .collect()
+        .collect();
+    out.sort_by_key(|m| (all.iter().position(|&a| a == m.agent), is_legacy(spec, m)));
+    out
+}
+
+/// A model's name without its version: "Opus 5.5" is Opus, "GPT-5.6-Terra" is GPT Terra.
+fn family(label: &str) -> String {
+    label
+        .split(|c: char| c.is_whitespace() || c == '-')
+        .filter(|w| !w.is_empty() && !w.chars().any(|c| c.is_ascii_digit()))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Whether a newer model of the same family comes before `model`. The catalogs list newest
+/// first.
+fn is_legacy(spec: &Spec, model: &Model) -> bool {
+    if model
+        .note
+        .as_deref()
+        .is_some_and(|n| n.starts_with("Older") || n.starts_with("Legacy"))
+    {
+        return true;
+    }
+    let f = family(&model.label);
+    spec.models
+        .iter()
+        .take_while(|m| !std::ptr::eq(*m, model))
+        .any(|m| m.agent == model.agent && family(&m.label) == f)
 }
 
 /// Whether `model` is the one picked now, whichever window it's on.
@@ -263,7 +307,7 @@ pub(super) fn to_models<H: Host>(h: &mut H, window: &mut Window, cx: &mut Contex
     let level = h.model_menu().as_mut().and_then(|m| {
         m.effort = false;
         m.opened = OPENED.fetch_add(1, Ordering::Relaxed);
-        m.hi = shown(&spec, "", None)
+        m.hi = shown(&spec, "", None, m.legacy)
             .iter()
             .position(|x| is_pick(&spec, x))
             .unwrap_or(0);
@@ -292,13 +336,13 @@ fn key<H: Host>(h: &mut H, e: &KeyDownEvent, window: &mut Window, cx: &mut Conte
     let Some(m) = h.model_menu() else {
         return;
     };
-    let count = shown(&spec, &m.query, m.rail).len();
+    let count = shown(&spec, &m.query, m.rail, m.legacy).len();
     let k = &e.keystroke;
     match k.key.as_str() {
         "up" => m.hi = m.hi.saturating_sub(1),
         "down" => m.hi = (m.hi + 1).min(count.saturating_sub(1)),
         "enter" => {
-            let model = shown(&spec, &m.query, m.rail)
+            let model = shown(&spec, &m.query, m.rail, m.legacy)
                 .get(m.hi)
                 .map(|m| (m.agent, m.id.clone()));
             if let Some((agent, id)) = model {
@@ -493,17 +537,44 @@ fn models_body<H: Host>(m: &ModelMenu, spec: &Spec, cx: &mut Context<H>) -> AnyE
         });
 
     // agent headings and model rows, measured as they go so the highlight knows where to sit
-    let shown = shown(spec, &m.query, m.rail);
+    let shown = shown(spec, &m.query, m.rail, m.legacy);
+    let mut folds: Vec<(Agent, AnyElement)> = Vec::new();
+    for agent in agents(spec) {
+        let n = spec
+            .models
+            .iter()
+            .filter(|x| x.agent == agent && is_legacy(spec, x))
+            .count();
+        if m.query.is_empty() && n > 0 {
+            folds.push((agent, legacy_row(agent, n, m.legacy, cx)));
+        }
+    }
+    let mut folded = |agent: Agent| {
+        let at = folds.iter().position(|(a, _)| *a == agent)?;
+        Some(folds.remove(at).1)
+    };
     let mut children: Vec<AnyElement> = Vec::new();
     let mut rows = Vec::new();
     let mut y = 0.;
     let mut hi_y = None;
     let mut group = None;
+    let mut fold = None;
     for (i, model) in shown.iter().enumerate() {
         if group != Some(model.agent) {
+            if let Some(row) = fold.take() {
+                children.push(row);
+                y += ROW;
+            }
             group = Some(model.agent);
+            fold = folded(model.agent);
             children.push(heading(model.agent).into_any_element());
             y += HEADING;
+        }
+        if is_legacy(spec, model)
+            && let Some(row) = fold.take()
+        {
+            children.push(row);
+            y += ROW;
         }
         if i == m.hi {
             hi_y = Some(y);
@@ -528,6 +599,7 @@ fn models_body<H: Host>(m: &ModelMenu, spec: &Spec, cx: &mut Context<H>) -> AnyE
         );
         y += ROW;
     }
+    children.extend(fold);
     *m.rows.borrow_mut() = rows;
     let highlight = match hi_y {
         Some(y) => m.glide.toward(y).apply(
@@ -587,14 +659,58 @@ fn heading(agent: Agent) -> Div {
         .h(px(HEADING))
         .flex()
         .items_end()
-        .gap(px(6.))
         .px(px(10.))
         .pb(px(5.))
         .text_size(px(11.))
         .font_weight(FontWeight::MEDIUM)
         .text_color(colors::text3())
-        .child(mark(agent, 11., colors::brand(agent).0))
-        .child(agent.name())
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .child(mark(agent, 11., colors::brand(agent).0))
+                .child(agent.name()),
+        )
+}
+
+/// The row that folds an agent's older models away, with how many there are.
+fn legacy_row<H: Host>(agent: Agent, n: usize, open: bool, cx: &mut Context<H>) -> AnyElement {
+    div()
+        .id(("legacy-row", agent as usize))
+        .flex_none()
+        .h(px(ROW))
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .px(px(10.))
+        .rounded(px(8.))
+        .cursor_pointer()
+        .text_color(colors::text3())
+        .hover(|s| s.bg(colors::ink(0.04)))
+        .child("Legacy models")
+        .child(badge(n.to_string()))
+        .child(div().flex_1())
+        .child(icon(
+            if open {
+                "chevron-down"
+            } else {
+                "chevron-right"
+            },
+            12.,
+            colors::text3(),
+        ))
+        .on_click(cx.listener(|h: &mut H, _: &ClickEvent, _, cx| {
+            if let Some(spec) = h.model_spec()
+                && let Some(m) = h.model_menu()
+            {
+                m.legacy = !m.legacy;
+                let count = shown(&spec, &m.query, m.rail, m.legacy).len();
+                m.hi = m.hi.min(count.saturating_sub(1));
+            }
+            cx.notify();
+        }))
+        .into_any_element()
 }
 
 /// One model: its name, a short note, and a tick on the pick.
@@ -652,6 +768,7 @@ pub(super) mod tests {
             efforts: vec!["low".into(), "high".into()],
             default_effort: Some("high".into()),
             long: Some(true),
+            fast: None,
             foot: None,
         }
     }
@@ -659,11 +776,50 @@ pub(super) mod tests {
     #[test]
     fn the_rail_and_the_search_narrow_the_models() {
         let s = spec();
-        assert_eq!(shown(&s, "", None).len(), 4);
-        assert_eq!(shown(&s, "", Some(Agent::Codex)).len(), 1);
-        assert_eq!(shown(&s, "OPUS", None)[0].id, "claude-opus-5-5");
-        assert!(shown(&s, "opus", Some(Agent::Codex)).is_empty());
+        assert_eq!(shown(&s, "", None, false).len(), 4);
+        assert_eq!(shown(&s, "", Some(Agent::Codex), false).len(), 1);
+        assert_eq!(shown(&s, "OPUS", None, false)[0].id, "claude-opus-5-5");
+        assert!(shown(&s, "opus", Some(Agent::Codex), false).is_empty());
         assert_eq!(agents(&s), [Agent::Claude, Agent::Codex]);
+    }
+
+    #[test]
+    fn older_models_fold_under_legacy() {
+        let mut s = spec();
+        let m = |id: &str, label: &str| Model {
+            agent: Agent::Claude,
+            id: id.into(),
+            label: label.into(),
+            note: None,
+        };
+        s.models.insert(2, m("claude-opus-5", "Opus 5"));
+        s.models.insert(3, m("claude-haiku-5-5", "Haiku 5.5"));
+        let ids = |v: Vec<&Model>| v.iter().map(|m| m.id.clone()).collect::<Vec<_>>();
+        assert_eq!(
+            ids(shown(&s, "", None, false)),
+            ["", "claude-opus-5-5", "claude-haiku-5-5", "gpt-5.5"]
+        );
+        assert_eq!(
+            ids(shown(&s, "", None, true)),
+            [
+                "",
+                "claude-opus-5-5",
+                "claude-haiku-5-5",
+                "claude-opus-5",
+                "claude-haiku-4-5",
+                "gpt-5.5"
+            ]
+        );
+        assert_eq!(ids(shown(&s, "opus", None, false)).len(), 2);
+        assert_eq!(family("GPT-5.6-Terra"), "GPT Terra");
+        assert_eq!(family("GPT-6-Luna"), family("GPT-5.6-Luna"));
+        s.models.push(Model {
+            agent: Agent::Codex,
+            id: "gpt-5.6-terra".into(),
+            label: "GPT-5.6-Terra".into(),
+            note: Some("Older balanced model for straightforward work.".into()),
+        });
+        assert!(is_legacy(&s, s.models.last().unwrap()));
     }
 
     #[test]

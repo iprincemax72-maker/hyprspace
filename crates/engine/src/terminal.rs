@@ -582,8 +582,9 @@ impl Terminals {
         let prompt = prompt.filter(|p| !p.trim().is_empty());
         let claude = run.as_ref().is_some_and(|r| r.agent == Agent::Claude);
         // every shell gets this session's hooks, so a claude started in it by hand reports too
+        let fast = run.as_ref().is_some_and(|r| r.fast);
         let settings = self.listener().and_then(|(port, exe)| {
-            hooks::write_settings(&hooks::hooks_dir(), port, &exe, &token(id))
+            hooks::write_settings(&hooks::hooks_dir(), port, &exe, &token(id), fast)
         });
         if let Some(path) = &settings {
             spawn

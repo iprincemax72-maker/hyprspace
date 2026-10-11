@@ -155,6 +155,7 @@ pub struct Transcript {
     pub cwd: Option<PathBuf>,
     /// Tokens in the context window and its size, as of the latest reply.
     pub context: Option<(u64, u64)>,
+    pub compacting: bool,
     last: Option<RunStatus>,
     failed: bool,
 }
@@ -412,12 +413,31 @@ impl Transcript {
             RunEvent::Context { used, window } => self.context = Some((used, window)),
             RunEvent::Steered | RunEvent::Usage { .. } | RunEvent::Limited { .. } => {}
             RunEvent::Error { message } => self.items.push(Item::Error(message)),
+            RunEvent::Compacting => self.compacting = true,
+            RunEvent::Compacted { before, after } => {
+                self.compacting = false;
+                if let (Some(a), Some((_, window))) = (after, self.context) {
+                    self.context = Some((a, window));
+                }
+                self.note(match (before, after) {
+                    (Some(b), Some(a)) => format!(
+                        "Compacted the conversation from {} to {} tokens.",
+                        tokens(b),
+                        tokens(a)
+                    ),
+                    (Some(b), None) => {
+                        format!("Compacted the conversation from {} tokens.", tokens(b))
+                    }
+                    _ => "Compacted the conversation.".into(),
+                });
+            }
             RunEvent::Finished {
                 status,
                 ms,
                 text,
                 error,
             } => {
+                self.compacting = false;
                 let run = self.run.take();
                 if !text.is_empty() && !run.as_ref().is_some_and(|r| r.said) {
                     self.items.push(Item::Text {
@@ -513,6 +533,14 @@ impl Transcript {
                 _ => {}
             }
         }
+    }
+}
+
+fn tokens(n: u64) -> String {
+    if n >= 1000 {
+        format!("{}K", (n + 500) / 1000)
+    } else {
+        n.to_string()
     }
 }
 
@@ -767,5 +795,40 @@ mod tests {
         assert!(matches!(t.items.last(), Some(Item::Note(_))));
         assert_ne!(t.status(), Status::Waiting);
         t.parse();
+    }
+
+    #[test]
+    fn a_compaction_leaves_a_note() {
+        let mut t = Transcript {
+            context: Some((38_400, 1_000_000)),
+            ..Default::default()
+        };
+        t.apply(RunEvent::Compacting);
+        assert!(t.compacting);
+        t.apply(RunEvent::Compacted {
+            before: Some(38_400),
+            after: Some(5_600),
+        });
+        assert!(!t.compacting);
+        assert_eq!(t.context, Some((5_600, 1_000_000)));
+        t.apply(RunEvent::Compacted {
+            before: None,
+            after: None,
+        });
+        let notes: Vec<&str> = t
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Note(n) => Some(n.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            notes,
+            [
+                "Compacted the conversation from 38K to 6K tokens.",
+                "Compacted the conversation."
+            ]
+        );
     }
 }

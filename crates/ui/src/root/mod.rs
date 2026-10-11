@@ -569,6 +569,14 @@ impl Root {
     fn loaded(&mut self, state: AppState, window: &mut Window, cx: &mut Context<Self>) {
         self.state = state;
         self.loaded = true;
+        for agent in [
+            hyprspace_proto::Agent::Claude,
+            hyprspace_proto::Agent::Codex,
+        ] {
+            if let Some(names) = self.state.commands.get(agent.cli()) {
+                crate::suggest::set_commands(agent, names.clone(), cx);
+            }
+        }
         if self.state.settle_archived() {
             self.save();
         }
@@ -671,6 +679,7 @@ impl Root {
             ComposerEvent::Machine(machine) => self.pick_machine(machine.clone(), window, cx),
             ComposerEvent::Space(space) => self.compose(Some(*space), window, cx),
             ComposerEvent::OtherFolder => self.other_folder(window, cx),
+            ComposerEvent::ShowImage(path) => self.show_image(path.clone(), cx),
         }
     }
 

@@ -63,6 +63,7 @@ pub enum ComposerEvent {
     Machine(Option<String>),
     Space(u64),
     OtherFolder,
+    ShowImage(PathBuf),
 }
 
 #[derive(Clone, Copy)]
@@ -290,6 +291,7 @@ impl Composer {
     fn launch(&self, cwd: PathBuf) -> Option<Launch> {
         let agent = self.agent()?.agent;
         let pick = self.prefs.pick(agent);
+        let fast = pick.fast && crate::models::takes_fast(agent, &pick.model);
         Some(Launch {
             agent,
             cwd,
@@ -297,6 +299,7 @@ impl Composer {
             effort: Some(pick.effort).filter(|e| !e.is_empty()),
             permission: self.prefs.permission,
             resume: None,
+            fast,
         })
     }
 
@@ -785,6 +788,7 @@ impl model_menu::Host for Composer {
                 .and_then(|m| m.default_effort.clone()),
             long: crate::models::takes_long(pick.agent, &pick.model)
                 .then(|| crate::models::is_long(&pick.model)),
+            fast: crate::models::takes_fast(pick.agent, &pick.model).then_some(pick.fast),
             agent: pick.agent,
             model: pick.model,
             effort: pick.effort,
@@ -810,14 +814,21 @@ impl model_menu::Host for Composer {
                 // the 1M window carries over to a model that has one
                 let long =
                     crate::models::is_long(&old.model) && crate::models::takes_long(agent, &model);
+                let fast = old.fast && crate::models::takes_fast(agent, &model);
                 self.set_pick(
                     Pick {
                         agent,
                         model: crate::models::windowed(&model, long),
                         effort,
+                        fast,
                     },
                     cx,
                 );
+            }
+            Choice::Fast(fast) => {
+                if let Some(pick) = self.pick() {
+                    self.set_pick(Pick { fast, ..pick }, cx);
+                }
             }
             Choice::Long(long) => {
                 if let Some(pick) = self.pick() {

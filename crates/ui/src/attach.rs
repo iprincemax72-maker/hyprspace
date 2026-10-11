@@ -169,16 +169,25 @@ pub fn thumb(path: &Path, size: f32) -> AnyElement {
 pub fn tray(
     id: &str,
     images: &[PathBuf],
+    open: impl Fn(&PathBuf, &mut gpui::Window, &mut gpui::App) + 'static,
     remove: impl Fn(&usize, &mut gpui::Window, &mut gpui::App) + 'static,
 ) -> impl IntoElement {
+    let open = std::rc::Rc::new(open);
     let remove = std::rc::Rc::new(remove);
     div()
         .flex()
         .flex_wrap()
         .gap_2()
         .children(images.iter().enumerate().map(|(ix, path)| {
-            let remove = remove.clone();
-            div().relative().child(thumb(path, 56.)).child(
+            let (open, remove, shown) = (open.clone(), remove.clone(), path.clone());
+            let preview = div()
+                .id(ElementId::Name(format!("{id}-{ix}").into()))
+                .child(thumb(path, 56.))
+                .when(is_image(path), |d| {
+                    d.cursor_pointer()
+                        .on_click(move |_, w, cx| open(&shown, w, cx))
+                });
+            div().relative().child(preview).child(
                 div()
                     .id(ElementId::Name(format!("{id}-x-{ix}").into()))
                     .absolute()

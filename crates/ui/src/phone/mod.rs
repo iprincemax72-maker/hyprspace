@@ -293,9 +293,10 @@ impl Root {
                 thread,
                 model,
                 effort,
+                fast,
             } => {
                 if let Some(v) = self.structured_view(thread, cx) {
-                    v.update(cx, |v, cx| v.repick(model, effort, cx));
+                    v.update(cx, |v, cx| v.repick(model, effort, fast, cx));
                 }
             }
             Ask::Interrupt { thread } => {

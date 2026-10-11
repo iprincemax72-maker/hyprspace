@@ -105,10 +105,22 @@ fn args(launch: &Launch) -> Vec<String> {
     if let Some(effort) = &launch.effort {
         out.extend(["--effort".into(), effort.clone()]);
     }
+    if launch.fast
+        && let Some(path) = fast_settings()
+    {
+        out.extend(["--settings".into(), path]);
+    }
     if let Some(thread) = &launch.resume {
         out.extend(["--resume".into(), thread.clone()]);
     }
     out
+}
+
+// a file, not inline JSON: an npm shim runs through cmd /c, which can mangle the quotes
+fn fast_settings() -> Option<String> {
+    let path = std::env::temp_dir().join("hyprspace-fast-mode.json");
+    std::fs::write(&path, r#"{"fastMode":true}"#).ok()?;
+    Some(path.to_string_lossy().into_owned())
 }
 
 impl Harness for Claude {
@@ -388,6 +400,13 @@ impl Actor {
                 (self.emit)(RunEvent::Woke);
             }
             "system" if v["subtype"] == "task_notification" => self.notified(&v),
+            "system" if v["subtype"] == "status" && v["status"] == "compacting" => {
+                (self.emit)(RunEvent::Compacting)
+            }
+            "system" if v["subtype"] == "compact_boundary" => (self.emit)(RunEvent::Compacted {
+                before: v["compact_metadata"]["pre_tokens"].as_u64(),
+                after: v["compact_metadata"]["post_tokens"].as_u64(),
+            }),
             "stream_event" if v["event"]["type"] == "content_block_delta" => {
                 let delta = &v["event"]["delta"];
                 match delta["type"].as_str() {
@@ -790,6 +809,12 @@ mod tests {
         assert!(a.windows(2).any(|w| w == ["--resume", "abc"]));
         assert!(a.contains(&"--dangerously-skip-permissions".to_string()));
         assert!(!a.contains(&"--permission-mode".to_string()));
+        assert!(!a.contains(&"--settings".to_string()));
+        launch.fast = true;
+        let a = args(&launch);
+        let at = a.iter().position(|x| x == "--settings").unwrap();
+        let settings = std::fs::read_to_string(&a[at + 1]).unwrap();
+        assert_eq!(settings, r#"{"fastMode":true}"#);
     }
 
     #[test]

@@ -191,10 +191,29 @@ impl Peers {
             _ => return Some(cmd),
         };
         let mut inner = self.lock();
-        let Some(route) = inner.routes.get_mut(&id) else {
+        let Some((peer, thread)) = inner.routes.get(&id).map(|r| (r.peer.clone(), r.thread)) else {
             return Some(cmd);
         };
-        let (peer, thread) = (route.peer.clone(), route.thread);
+        let asks = matches!(
+            cmd,
+            Command::OpenStructured {
+                prompt: Some(_),
+                ..
+            } | Command::Send { .. }
+                | Command::Interrupt { .. }
+                | Command::Approve { .. }
+        );
+        if asks && !inner.links.get(&peer).is_some_and(|l| l.tx.is_some()) {
+            let name = inner
+                .saved
+                .iter()
+                .find(|s| s.id == peer)
+                .map_or("That computer", |s| s.name.as_str());
+            let message = format!("{name} is offline, so this didn't reach it.");
+            let _ = inner.ui.unbounded_send(Event::Failed { id, message });
+            return None;
+        }
+        let route = inner.routes.get_mut(&id)?;
         let mut ups = Vec::new();
         match cmd {
             Command::LoadJournal { .. } => {
@@ -354,7 +373,7 @@ impl Peers {
     }
 
     /// The host is found somewhere else on the network now.
-    fn moved(&self, peer: &str, hosts: Vec<String>, port: u16) {
+    fn moved(&self, peer: &str, hosts: Vec<String>, port: u16) -> bool {
         let mut inner = self.lock();
         if let Some(s) = inner.saved.iter_mut().find(|s| s.id == peer)
             && (s.hosts != hosts || s.port != port)
@@ -362,7 +381,9 @@ impl Peers {
             s.hosts = hosts;
             s.port = port;
             inner.save();
+            return true;
         }
+        false
     }
 
     /// Connected: what was routed to the host before comes back.

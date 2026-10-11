@@ -196,6 +196,7 @@ impl Root {
                                     agent,
                                     model: id.clone(),
                                     effort,
+                                    fast: old.fast && crate::models::takes_fast(agent, &id),
                                 };
                                 r.update_prefs(|p| p.set_pick(pick), cx);
                             },

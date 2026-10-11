@@ -45,11 +45,18 @@ pub(crate) fn name(catalog: Option<&AgentCatalog>, id: &str) -> String {
 /// The tag that puts a Claude model on its 1M context window.
 const LONG: &str = "[1m]";
 
-/// Whether `id` can run on the 1M window: Claude's Opus and Sonnet can, Haiku and the CLI's own
-/// default (an empty id) can't.
+/// Whether `id` has a separate 1M variant. Only Opus 4.6 and Sonnet 4.6 do: newer models run on
+/// 1M already, and older ones stop at 200K.
 pub(crate) fn takes_long(agent: Agent, id: &str) -> bool {
-    let b = bare(id);
-    agent == Agent::Claude && (b.starts_with("claude-opus") || b.starts_with("claude-sonnet"))
+    agent == Agent::Claude && matches!(bare(id), "claude-opus-4-6" | "claude-sonnet-4-6")
+}
+
+pub(crate) fn takes_fast(agent: Agent, id: &str) -> bool {
+    agent == Agent::Claude
+        && matches!(
+            bare(id),
+            "claude-opus-5-5" | "claude-opus-5" | "claude-opus-4-8"
+        )
 }
 
 /// Whether `id` is on the 1M window.
@@ -133,12 +140,20 @@ mod tests {
 
     #[test]
     fn only_opus_and_sonnet_take_the_long_window() {
-        assert!(takes_long(Agent::Claude, "claude-opus-5-5"));
-        assert!(takes_long(Agent::Claude, "claude-sonnet-5-5[1m]"));
+        assert!(takes_long(Agent::Claude, "claude-opus-4-6"));
+        assert!(!takes_long(Agent::Claude, "claude-opus-5-5"));
+        assert!(takes_long(Agent::Claude, "claude-sonnet-4-6[1m]"));
+        assert!(!takes_long(Agent::Claude, "claude-sonnet-5-5[1m]"));
         assert!(!takes_long(Agent::Claude, "claude-haiku-4-5"));
         assert!(!takes_long(Agent::Claude, "claude-haiku-5-5"));
         assert!(!takes_long(Agent::Claude, ""));
         assert!(!takes_long(Agent::Codex, "gpt-5.5"));
+        assert!(!takes_long(Agent::Claude, "claude-opus-4-5-20251101"));
+        assert!(takes_fast(Agent::Claude, "claude-opus-5-5[1m]"));
+        assert!(takes_fast(Agent::Claude, "claude-opus-4-8"));
+        assert!(!takes_fast(Agent::Claude, "claude-opus-4-7"));
+        assert!(!takes_fast(Agent::Claude, "claude-sonnet-5-5"));
+        assert!(!takes_fast(Agent::Claude, ""));
         assert_eq!(windowed("claude-opus-5-5", true), "claude-opus-5-5[1m]");
         assert_eq!(windowed("claude-opus-5-5[1m]", false), "claude-opus-5-5");
         assert!(is_long("claude-opus-5-5[1m]"));

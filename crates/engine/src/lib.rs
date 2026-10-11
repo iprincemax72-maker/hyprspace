@@ -184,10 +184,9 @@ async fn serve(
                 let events = tx.clone();
                 let record = journal.clone();
                 let emit: Emit = Box::new(move |event| {
-                    if let Some(j) = record
-                        .as_ref()
-                        .filter(|_| !matches!(event, RunEvent::Commands { .. }))
-                    {
+                    if let Some(j) = record.as_ref().filter(|_| {
+                        !matches!(event, RunEvent::Commands { .. } | RunEvent::Compacting)
+                    }) {
                         j.record(Entry::Run {
                             event: event.clone(),
                         });

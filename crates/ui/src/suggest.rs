@@ -247,7 +247,17 @@ fn commands(agent: Agent, cwd: &Path, cx: &mut App) -> Vec<Item> {
             },
         })
         .collect();
-    for name in known.commands.get(&agent).into_iter().flatten() {
+    let before_start: &[&str] = if agent == Agent::Claude {
+        &["compact"]
+    } else {
+        &[]
+    };
+    let names = known
+        .commands
+        .get(&agent)
+        .cloned()
+        .unwrap_or_else(|| before_start.iter().map(|s| s.to_string()).collect());
+    for name in &names {
         if !items.iter().any(|i| &i.label == name) {
             items.push(Item {
                 label: name.clone(),

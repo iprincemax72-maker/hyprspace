@@ -4,6 +4,8 @@
 // send button on the right, the way zeron lays it out. Its pickers sit flat in the box until
 // hovered. Under it, after T3 Code's: the folder and branch the thread starts on, and the keys.
 
+use std::path::PathBuf;
+
 use gpui::{
     AnyElement, ClickEvent, Context, Focusable, FontWeight, IntoElement, MouseButton, Window, div,
     prelude::*, px,
@@ -13,7 +15,7 @@ use hyprspace_proto::state::Pick;
 use hyprspace_theme::MONO;
 
 use super::model_menu::Host as _;
-use super::{Composer, PickFor, model_menu, pickers};
+use super::{Composer, ComposerEvent, PickFor, model_menu, pickers};
 use crate::assets::{icon, mark};
 use crate::{attach, colors, time, widgets};
 
@@ -71,7 +73,7 @@ pub fn card(c: &Composer, window: &mut Window, cx: &mut Context<Composer>) -> An
     };
     let effort_chip = c
         .model_spec()
-        .filter(|s| !s.efforts.is_empty() || s.long.is_some())
+        .filter(|s| !s.efforts.is_empty() || s.long.is_some() || s.fast.is_some())
         .map(|spec| {
             model_menu::anchored_chip(
                 &c.effort_anchor,
@@ -145,6 +147,9 @@ pub fn card(c: &Composer, window: &mut Window, cx: &mut Context<Composer>) -> An
             d.child(div().px(px(14.)).pt(px(12.)).child(attach::tray(
                 "composer-img",
                 &c.images,
+                cx.listener(|_, path: &PathBuf, _, cx| {
+                    cx.emit(ComposerEvent::ShowImage(path.clone()))
+                }),
                 cx.listener(|c, ix: &usize, _, cx| {
                     if *ix < c.images.len() {
                         c.images.remove(*ix);

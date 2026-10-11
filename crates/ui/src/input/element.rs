@@ -4,8 +4,8 @@
 
 use gpui::{
     App, AvailableSpace, Bounds, ElementId, ElementInputHandler, Entity, GlobalElementId, LayoutId,
-    PaintQuad, Pixels, SharedString, Style, TextRun, UnderlineStyle, Window, WrappedLine, fill,
-    point, prelude::*, px, relative, size,
+    PaintQuad, Pixels, ScrollHandle, SharedString, Style, TextRun, TextStyle, UnderlineStyle,
+    Window, WrappedLine, fill, point, prelude::*, px, relative, size,
 };
 
 use super::TextInput;
@@ -30,10 +30,10 @@ pub struct Prepaint {
 /// Shapes `input`'s text (or its placeholder) wrapped at `width`, with each hard line's start.
 fn shape(
     input: &TextInput,
+    style: &TextStyle,
     width: Option<Pixels>,
     window: &mut Window,
 ) -> Vec<(usize, WrappedLine)> {
-    let style = window.text_style();
     let (text, color): (SharedString, _) = if input.content.is_empty() {
         (input.placeholder.clone(), colors::text3())
     } else {
@@ -86,6 +86,21 @@ fn shape(
         .collect()
 }
 
+fn thumb(scroll: &ScrollHandle) -> Option<Bounds<Pixels>> {
+    let view = scroll.bounds();
+    let max = scroll.max_offset().y;
+    if max <= Pixels::ZERO {
+        return None;
+    }
+    let track = view.size.height - px(4.);
+    let h = (track * (view.size.height / (view.size.height + max))).max(px(24.));
+    let y = (track - h) * (-scroll.offset().y / max);
+    Some(Bounds::new(
+        point(view.right() - px(6.), view.top() + px(2.) + y),
+        size(px(4.), h),
+    ))
+}
+
 fn rows(lines: &[(usize, WrappedLine)]) -> usize {
     lines
         .iter()
@@ -124,13 +139,16 @@ impl Element for TextElement {
         let input = self.input.clone();
         let mut style = Style::default();
         style.size.width = relative(1.).into();
+        // layout runs after the parents' text style is popped, so it travels with the closure
+        let text = window.text_style();
+        let lh = window.line_height();
         let id = window.request_measured_layout(style, move |known, available, window, cx| {
             let width = known.width.or(match available.width {
                 AvailableSpace::Definite(w) => Some(w),
                 _ => None,
             });
-            let lines = shape(input.read(cx), width, window);
-            let height = window.line_height() * rows(&lines) as f32;
+            let lines = shape(input.read(cx), &text, width, window);
+            let height = lh * rows(&lines) as f32;
             size(width.unwrap_or(Pixels::ZERO), height)
         });
         (id, ())
@@ -146,7 +164,7 @@ impl Element for TextElement {
         cx: &mut App,
     ) -> Prepaint {
         let input = self.input.read(cx);
-        let lines = shape(input, Some(bounds.size.width), window);
+        let lines = shape(input, &window.text_style(), Some(bounds.size.width), window);
         let lh = window.line_height();
         let empty = input.content.is_empty();
         let (sel, cursor) = (input.selected.clone(), input.cursor());
@@ -197,6 +215,28 @@ impl Element for TextElement {
         } else {
             pos(cursor)
         };
+        let key = (input.cursor(), input.content.len());
+        if input.multiline
+            && input.revealed != key
+            && let Some(p) = at
+        {
+            let scroll = input.scroll.clone();
+            let view = scroll.bounds();
+            if view.size.height > Pixels::ZERO {
+                let top = p.y - view.top();
+                let mut off = scroll.offset();
+                if top < Pixels::ZERO {
+                    off.y -= top;
+                } else if top + lh > view.size.height {
+                    off.y -= top + lh - view.size.height;
+                }
+                if off != scroll.offset() {
+                    scroll.set_offset(off);
+                    window.refresh();
+                }
+                self.input.update(cx, |input, _| input.revealed = key);
+            }
+        }
         let cursor = sel
             .is_empty()
             .then_some(at)
@@ -229,25 +269,36 @@ impl Element for TextElement {
             window.paint_quad(quad);
         }
         let lh = window.line_height();
+        let seen = window.content_mask().bounds;
         let mut y = bounds.top();
         for (_, line) in &prepaint.lines {
-            let _ = line.paint(
-                point(bounds.left(), y),
-                lh,
-                gpui::TextAlign::Left,
-                None,
-                window,
-                cx,
-            );
-            y += lh * (line.wrap_boundaries().len() + 1) as f32;
+            let h = lh * (line.wrap_boundaries().len() + 1) as f32;
+            if y + h >= seen.top() && y <= seen.bottom() {
+                let _ = line.paint(
+                    point(bounds.left(), y),
+                    lh,
+                    gpui::TextAlign::Left,
+                    None,
+                    window,
+                    cx,
+                );
+            }
+            y += h;
         }
         if focus.is_focused(window)
             && let Some(cursor) = prepaint.cursor.take()
         {
             window.paint_quad(cursor);
         }
+        let input = self.input.read(cx);
+        let thumb = input.multiline.then(|| thumb(&input.scroll)).flatten();
+        if let Some(t) = thumb {
+            let alpha = if input.grab.is_some() { 0.3 } else { 0.16 };
+            window.paint_quad(fill(t, colors::ink(alpha)).corner_radii(px(2.)));
+        }
         let lines = std::mem::take(&mut prepaint.lines);
         self.input.update(cx, |input, _| {
+            input.thumb = thumb;
             // the placeholder's layout must not answer for an empty box's offsets
             input.layout = if input.content.is_empty() {
                 Vec::new()

@@ -198,6 +198,7 @@ mod tests {
             agent: Agent::Codex,
             model: String::new(),
             effort: String::new(),
+            fast: false,
         }];
         // the same state, saved while Gemini was there
         let raw = serde_json::to_string(&s)

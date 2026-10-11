@@ -51,6 +51,17 @@ impl Root {
             .is_some_and(|a| !a.subs.is_empty())
     }
 
+    pub(crate) fn working(&self) -> usize {
+        let threads: std::collections::HashSet<u64> = self
+            .status
+            .keys()
+            .chain(self.activity.keys())
+            .copied()
+            .filter(|&t| t < crate::machines::FIRST && self.busy(t))
+            .collect();
+        threads.len()
+    }
+
     /// On screen, which auto-settle leaves alone.
     fn on_screen(&self, thread: u64) -> bool {
         self.screen == Screen::Thread(thread)

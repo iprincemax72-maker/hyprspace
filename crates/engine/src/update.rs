@@ -3,6 +3,7 @@
 // an install checks again, downloads, verifies, starts the installer (or swaps the macOS bundle)
 // and tells the UI to quit so the install can finish.
 
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::channel::mpsc::UnboundedSender;
@@ -15,6 +16,11 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// One install at a time. A second click while one runs is ignored.
 static INSTALLING: AtomicBool = AtomicBool::new(false);
 
+static READY: Mutex<Option<(String, Vec<u8>)>> = Mutex::new(None);
+static FETCHING: AtomicBool = AtomicBool::new(false);
+
+const PENDING: &str = "update-pending";
+
 pub fn handle(cmd: UpdateCommand, tx: UnboundedSender<Event>) {
     let send = move |e: UpdateEvent| {
         let _ = tx.unbounded_send(Event::Update(e));
@@ -26,10 +32,22 @@ pub fn handle(cmd: UpdateCommand, tx: UnboundedSender<Event>) {
     match cmd {
         UpdateCommand::Check => {
             tokio::spawn(async move {
+                let unfinished = unfinished();
                 send(match hyprspace_update::check(VERSION).await {
-                    Ok(up) => UpdateEvent::Checked {
-                        release: up.map(release),
-                    },
+                    Ok(Some(up)) => {
+                        let version = up.version.clone();
+                        tokio::spawn(fetch(up.clone()));
+                        match unfinished {
+                            Some(to) if to == version => UpdateEvent::Failed {
+                                message: format!("The update to {to} didn't finish."),
+                                install: true,
+                            },
+                            _ => UpdateEvent::Checked {
+                                release: Some(release(up)),
+                            },
+                        }
+                    }
+                    Ok(None) => UpdateEvent::Checked { release: None },
                     Err(e) => UpdateEvent::Failed {
                         message: format!("Couldn't reach the update server: {e:#}"),
                         install: false,
@@ -65,6 +83,7 @@ pub fn sweep() {
         return;
     }
     std::thread::spawn(|| {
+        crate::hooks::end_strays();
         let temp = std::env::temp_dir();
         for _ in 0..15 {
             if hyprspace_update::sweep(&temp) == 0 {
@@ -73,6 +92,29 @@ pub fn sweep() {
             std::thread::sleep(std::time::Duration::from_secs(2));
         }
     });
+}
+
+fn unfinished() -> Option<String> {
+    let path = crate::persist::state_dir().join(PENDING);
+    let to = std::fs::read_to_string(&path).ok()?;
+    let _ = std::fs::remove_file(&path);
+    let to = to.trim().to_string();
+    hyprspace_update::newer(VERSION, &to).then_some(to)
+}
+
+async fn fetch(up: hyprspace_update::Update) {
+    let have = READY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .map(|r| r.0.clone());
+    if have.as_deref() == Some(up.version.as_str()) || FETCHING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    if let Ok(bytes) = hyprspace_update::download(&up, |_, _| {}).await {
+        *READY.lock().unwrap_or_else(|e| e.into_inner()) = Some((up.version, bytes));
+    }
+    FETCHING.store(false, Ordering::SeqCst);
 }
 
 fn release(up: hyprspace_update::Update) -> Release {
@@ -93,27 +135,40 @@ async fn run(
     let Some(up) = hyprspace_update::check(VERSION).await? else {
         return Ok(None);
     };
+    let ready = READY
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take_if(|r| r.0 == up.version)
+        .map(|r| r.1);
     let mut shown = None;
-    let bytes = hyprspace_update::download(&up, |got, total| {
-        let percent = total
-            .filter(|t| *t > 0)
-            .map(|t| (got * 100 / t).min(100) as u8);
-        // one event per percent, not per chunk
-        if shown != Some(percent) {
-            shown = Some(percent);
-            send(UpdateEvent::Step {
-                step: Step::Downloading { percent },
-            });
+    let bytes = match ready {
+        Some(bytes) => bytes,
+        None => {
+            hyprspace_update::download(&up, |got, total| {
+                let percent = total
+                    .filter(|t| *t > 0)
+                    .map(|t| (got * 100 / t).min(100) as u8);
+                // one event per percent, not per chunk
+                if shown != Some(percent) {
+                    shown = Some(percent);
+                    send(UpdateEvent::Step {
+                        step: Step::Downloading { percent },
+                    });
+                }
+            })
+            .await?
         }
-    })
-    .await?;
+    };
     send(UpdateEvent::Step {
         step: Step::Installing,
     });
     let install = install.clone();
     tokio::task::spawn_blocking(move || {
         let staged = hyprspace_update::stage(&up, &bytes)?;
-        hyprspace_update::install(&staged, &install)
+        crate::hooks::end_strays();
+        hyprspace_update::install(&staged, &install)?;
+        let _ = std::fs::write(crate::persist::state_dir().join(PENDING), &up.version);
+        anyhow::Ok(())
     })
     .await??;
     Ok(Some(()))

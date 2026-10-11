@@ -39,10 +39,10 @@ pub const PUBKEY: &str = match option_env!("HYPRSPACE_UPDATE_PUBKEY") {
 };
 
 /// The arguments the Tauri app's updater passes the NSIS installer (tauri-plugin-updater 2.10,
-/// install mode "passive"): a progress bar and no questions, restart the app when done, and
-/// update mode, which keeps the user's shortcuts as they are. This crate passes the same ones,
-/// so the installer only ever has one way of being run by an updater.
-pub const INSTALLER_ARGS: [&str; 4] = ["/P", "/R", "/UPDATE", "/ARGS"];
+/// install mode "passive": `/P /R /UPDATE /ARGS`), with `/S` for `/P`: no window and no
+/// questions, restart the app when done, and update mode, which keeps the user's shortcuts as
+/// they are.
+pub const INSTALLER_ARGS: [&str; 4] = ["/S", "/R", "/UPDATE", "/ARGS"];
 
 /// This build's key in the feed's `platforms` map. None on a platform we don't ship.
 pub fn platform_key() -> Option<&'static str> {

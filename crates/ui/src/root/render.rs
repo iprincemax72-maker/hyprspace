@@ -205,7 +205,7 @@ impl Render for Root {
         let palette = self.palette_overlay(window, cx);
         let folders = self.folder_overlay(window, cx);
         let intro = self.intro_overlay(window, cx);
-        let update = crate::update::overlay(&self.updater, cx);
+        let update = crate::update::overlay(&self.updater, self.working(), cx);
         let lightbox = self.lightbox.as_ref().map(|(l, _)| {
             deferred(anchored().position(point(px(0.), px(0.))).child(l.clone())).with_priority(3)
         });

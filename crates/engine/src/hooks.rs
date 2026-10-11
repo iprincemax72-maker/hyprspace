@@ -10,6 +10,7 @@
 // records never land on disk. Why not marker files: that's poll-based, far too laggy for a dozen
 // live sessions.
 
+use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -17,6 +18,7 @@ use std::process::Stdio;
 use std::time::Duration;
 
 use serde_json::{Value, json};
+use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 /// One message from a hook process. Both carry `{ "session": id, ... }`.
 #[derive(Debug, Clone, PartialEq)]
@@ -216,6 +218,57 @@ pub fn cleanup(dir: &Path, session: &str) {
     }
 }
 
+// a claude that dies while starting one leaves it suspended for good, holding the exe open
+pub fn end_strays() {
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        ProcessRefreshKind::new()
+            .with_cmd(UpdateKind::Always)
+            .with_exe(UpdateKind::Always),
+    );
+    let procs = sys.processes();
+    for p in procs.values() {
+        let Some(owner) = helper_owner(p.cmd(), &exe) else {
+            continue;
+        };
+        let alive = procs
+            .get(&Pid::from_u32(owner))
+            .and_then(|o| o.exe())
+            .is_some_and(|e| same_file(e, &exe));
+        if !alive {
+            p.kill();
+        }
+    }
+}
+
+fn helper_owner(cmd: &[OsString], exe: &Path) -> Option<u32> {
+    let [bin, sub, _, session, ..] = cmd else {
+        return None;
+    };
+    if !matches!(sub.to_str()?, "agent-hook" | "status-line") || !same_file(Path::new(bin), exe) {
+        return None;
+    }
+    session
+        .to_str()?
+        .strip_prefix("hs")?
+        .split('-')
+        .next()?
+        .parse()
+        .ok()
+}
+
+fn same_file(a: &Path, b: &Path) -> bool {
+    if cfg!(windows) {
+        a.as_os_str().eq_ignore_ascii_case(b.as_os_str())
+    } else {
+        a == b
+    }
+}
+
 /// Entry point for `hyprspace agent-hook <port> <session>`: read claude's payload from stdin, tag
 /// it with its session, and hand it to the running app. Best-effort and silent: a hook that
 /// errors must never interrupt the user's turn.
@@ -321,6 +374,22 @@ mod tests {
     use std::sync::mpsc;
 
     use super::*;
+
+    #[test]
+    fn helpers_name_their_app() {
+        let exe = Path::new(r"C:\Apps\HyprSpace\hyprspace.exe");
+        let cmd = |args: &[&str]| args.iter().map(OsString::from).collect::<Vec<_>>();
+        let owner = |args: &[&str]| helper_owner(&cmd(args), exe);
+        let bin = r"C:\Apps\HyprSpace\hyprspace.exe";
+        assert_eq!(owner(&[bin, "status-line", "5", "hs34804-6"]), Some(34804));
+        assert_eq!(owner(&[bin, "agent-hook", "5", "hs7-1"]), Some(7));
+        assert_eq!(owner(&[bin]), None);
+        assert_eq!(owner(&[bin, "status-line", "5", "x1"]), None);
+        assert_eq!(
+            owner(&[r"C:\Other\hyprspace.exe", "agent-hook", "5", "hs7-1"]),
+            None
+        );
+    }
 
     #[test]
     fn session_ids_are_tokens() {

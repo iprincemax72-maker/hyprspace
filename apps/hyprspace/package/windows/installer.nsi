@@ -4,7 +4,7 @@
 ; product name, publisher, registry keys, install folder and shortcut, so it installs over the
 ; Tauri app in place and Apps keeps one HyprSpace entry. The Tauri app's updater runs it as
 ;   HyprSpace_<version>_x64-setup.exe /P /R /UPDATE /ARGS
-; (tauri-plugin-updater 2.10, passive mode) and so does the GPUI app's own updater. Flags:
+; (tauri-plugin-updater 2.10, passive mode). The GPUI app's own updater passes /S for /P. Flags:
 ;   /S       silent, NSIS's own                /P       passive: a progress bar, no questions
 ;   /R       start the app when done           /UPDATE  an updater runs us: wait for the app to
 ;   /ARGS .. arguments for that start                   exit, keep the user's shortcuts as they are
@@ -129,7 +129,8 @@ Function ${un}WaitFor
       ${If} ${RunningX64}
         StrCpy $R5 "$WINDIR\Sysnative\WindowsPowerShell\v1.0\powershell.exe"
       ${EndIf}
-      nsExec::Exec `"$R5" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$p = @(Get-Process | Where-Object { $$_.Path -eq '$INSTDIR\$R1' }); $$p | ForEach-Object { [void]$$_.CloseMainWindow() }; $$p | ForEach-Object { if (-not $$_.WaitForExit(5000)) { $$_.Kill() } }"`
+      ; match on the command line too: a helper orphaned while still suspended has no path
+      nsExec::Exec `"$R5" -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$x = '$INSTDIR\$R1'; $$p = @(Get-CimInstance Win32_Process | Where-Object { $$_.ExecutablePath -eq $$x -or ([string]$$_.CommandLine).TrimStart([char]34).StartsWith($$x, 'OrdinalIgnoreCase') } | ForEach-Object { Get-Process -Id $$_.ProcessId -ErrorAction SilentlyContinue }); $$p | ForEach-Object { [void]$$_.CloseMainWindow() }; $$p | ForEach-Object { if (-not $$_.WaitForExit(5000)) { $$_.Kill() } }"`
       Pop $R3
       StrCpy $R2 0
       Goto loop
@@ -271,6 +272,16 @@ Function .onInstSuccess
     ${IfNot} ${Errors}
       ${GetOptions} $CMDLINE "/ARGS" $R0
       Exec '"$INSTDIR\${MAINBINARY}" $R0'
+    ${EndIf}
+  ${EndIf}
+FunctionEnd
+
+Function .onInstFailed
+  ${If} $UpdateMode = 1
+  ${AndIf} ${FileExists} "$INSTDIR\${MAINBINARY}"
+    ${GetOptions} $CMDLINE "/R" $R0
+    ${IfNot} ${Errors}
+      Exec '"$INSTDIR\${MAINBINARY}"'
     ${EndIf}
   ${EndIf}
 FunctionEnd

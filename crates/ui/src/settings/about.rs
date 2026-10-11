@@ -88,12 +88,19 @@ impl Root {
                 .min_w_0(),
             );
         let updater = self.updater.clone();
+        let working = self.working();
         let action = if matches!(u.phase, Phase::Available(_)) {
             widgets::primary_frame("about-install")
                 .gap(px(7.))
                 .child(icon("download", 13., colors::on_accent()))
-                .child("Restart and update")
-                .on_click(move |_: &ClickEvent, _, cx| updater.update(cx, |u, cx| u.install(cx)))
+                .child(if u.confirm.is_some() {
+                    "Update anyway"
+                } else {
+                    "Restart and update"
+                })
+                .on_click(move |_: &ClickEvent, _, cx| {
+                    updater.update(cx, |u, cx| u.install(working, cx))
+                })
                 .into_any_element()
         } else {
             let off = busy || u.phase == Phase::Unmanaged;

@@ -8,19 +8,21 @@ use gpui::{
 };
 use hyprspace_proto::update::Step;
 
-use super::{Phase, Updater, VERSION, step_text};
+use super::{Phase, Updater, VERSION, running, step_text};
 use crate::assets::icon;
 use crate::pace::Looping;
 use crate::{colors, widgets};
 
 /// The cards for the window's bottom right corner, or None when there is nothing to show.
-pub fn overlay(updater: &Entity<Updater>, cx: &App) -> Option<AnyElement> {
+pub fn overlay(updater: &Entity<Updater>, working: usize, cx: &App) -> Option<AnyElement> {
     let u = updater.read(cx);
     let news = u.whats_new.clone().map(|notes| whats_new(updater, notes));
-    let card = match &u.phase {
-        Phase::Available(r) if !u.dismissed => Some(available(updater, &r.version)),
-        Phase::Failed(m) if !u.dismissed => Some(failed(updater, m)),
-        Phase::Busy(step) => Some(busy(*step, u.progress())),
+    let card = match (&u.phase, u.confirm) {
+        (Phase::Busy(step), _) => Some(busy(*step, u.progress())),
+        _ if u.dismissed => None,
+        (Phase::Available(_) | Phase::Failed(_), Some(n)) => Some(confirm(updater, n, working)),
+        (Phase::Available(r), None) => Some(available(updater, &r.version, working)),
+        (Phase::Failed(m), None) => Some(failed(updater, m, working)),
         _ => None,
     };
     if news.is_none() && card.is_none() {
@@ -88,17 +90,17 @@ fn close(updater: &Entity<Updater>, id: &'static str, news: bool) -> AnyElement 
         .into_any_element()
 }
 
-fn install_button(updater: &Entity<Updater>, label: &'static str) -> AnyElement {
+fn install_button(updater: &Entity<Updater>, label: &'static str, working: usize) -> AnyElement {
     let updater = updater.clone();
     widgets::primary("update-install", label)
         .h(px(24.))
         .px(px(9.))
         .font_weight(FontWeight::NORMAL)
-        .on_click(move |_: &ClickEvent, _, cx| updater.update(cx, |u, cx| u.install(cx)))
+        .on_click(move |_: &ClickEvent, _, cx| updater.update(cx, |u, cx| u.install(working, cx)))
         .into_any_element()
 }
 
-fn available(updater: &Entity<Updater>, version: &str) -> AnyElement {
+fn available(updater: &Entity<Updater>, version: &str, working: usize) -> AnyElement {
     frame()
         .child(dot(false))
         .child(
@@ -106,17 +108,27 @@ fn available(updater: &Entity<Updater>, version: &str) -> AnyElement {
                 .whitespace_nowrap()
                 .child(format!("Update {version} available")),
         )
-        .child(install_button(updater, "Restart and update"))
+        .child(install_button(updater, "Restart and update", working))
         .child(close(updater, "update-later", false))
         .into_any_element()
 }
 
-fn failed(updater: &Entity<Updater>, message: &str) -> AnyElement {
+fn confirm(updater: &Entity<Updater>, n: usize, working: usize) -> AnyElement {
+    frame()
+        .max_w(px(460.))
+        .child(dot(false))
+        .child(div().min_w_0().child(running(n)))
+        .child(install_button(updater, "Update anyway", working))
+        .child(close(updater, "update-later", false))
+        .into_any_element()
+}
+
+fn failed(updater: &Entity<Updater>, message: &str, working: usize) -> AnyElement {
     frame()
         .max_w(px(460.))
         .child(dot(true))
         .child(div().min_w_0().child(message.to_string()))
-        .child(install_button(updater, "Retry"))
+        .child(install_button(updater, "Retry", working))
         .child(close(updater, "update-dismiss", false))
         .into_any_element()
 }

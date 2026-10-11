@@ -42,6 +42,7 @@ pub struct Updater {
     silent: bool,
     /// The card was closed. It comes back for the next release or error.
     dismissed: bool,
+    pub(crate) confirm: Option<usize>,
     last_check: Option<Instant>,
     /// What's new in this version, until it is closed.
     pub(crate) whats_new: Option<Vec<String>>,
@@ -63,6 +64,7 @@ impl Updater {
             phase: Phase::Idle,
             silent: true,
             dismissed: false,
+            confirm: None,
             last_check: None,
             whats_new: None,
             _poll: poll,
@@ -93,11 +95,17 @@ impl Updater {
         }
     }
 
-    pub fn install(&mut self, cx: &mut Context<Self>) {
+    pub fn install(&mut self, working: usize, cx: &mut Context<Self>) {
         if matches!(self.phase, Phase::Busy(_) | Phase::Unmanaged) {
             return;
         }
         self.dismissed = false;
+        if working > 0 && self.confirm.is_none() {
+            self.confirm = Some(working);
+            cx.notify();
+            return;
+        }
+        self.confirm = None;
         self.phase = Phase::Busy(Step::Preparing);
         self.client.send(Command::Update(UpdateCommand::Install));
         cx.notify();
@@ -105,6 +113,7 @@ impl Updater {
 
     pub fn dismiss(&mut self, cx: &mut Context<Self>) {
         self.dismissed = true;
+        self.confirm = None;
         cx.notify();
     }
 
@@ -160,6 +169,9 @@ impl Updater {
 
     /// The line under the version in Settings, About.
     pub(crate) fn status(&self) -> String {
+        if let (Some(n), Phase::Available(_) | Phase::Failed(_)) = (self.confirm, &self.phase) {
+            return running(n);
+        }
         match &self.phase {
             Phase::Idle => "Checks for updates on launch".into(),
             Phase::Checking => "Checking for updates".into(),
@@ -185,6 +197,13 @@ impl Updater {
 /// Whether the built-in changelog has notes for this version. A build between releases has none.
 pub(crate) fn has_notes() -> bool {
     !changelog::notes(VERSION).is_empty()
+}
+
+fn running(n: usize) -> String {
+    match n {
+        1 => "1 thread is still running. Updating stops it.".into(),
+        n => format!("{n} threads are still running. Updating stops them."),
+    }
 }
 
 fn step_text(step: Step) -> String {

@@ -32,8 +32,14 @@ install the current app on both platforms.
   a corner card with "Restart and update". An install checks the feed again first, so an app
   several releases behind lands on the newest in one hop. What's new reads the `docs/CHANGELOG.md`
   built into the app on the first launch of a new version.
-- **Windows:** the engine starts the NSIS installer with the Tauri updater's own arguments
-  (`/P /R /UPDATE /ARGS`) and the UI quits.
+- A check that finds a release downloads and verifies it in the background and keeps it in
+  memory, so the click goes straight to installing. With threads still running, the first click
+  says how many will stop and the second installs.
+- Handing over writes `update-pending` in the state folder. A launch that is still on the old
+  version reads it and shows "The update to x didn't finish" with Retry.
+- **Windows:** the engine starts the NSIS installer with the Tauri updater's arguments, silent
+  instead of passive (`/S /R /UPDATE /ARGS`), and the UI quits. The app closes and reopens on the
+  new version with no installer window, the way other desktop apps update.
 - **macOS:** the engine unpacks the `.app.tar.gz` over the bundle, and a detached shell reopens it
   once this process is gone.
 - Both updaters stage the installer in a temp folder and quit before they could delete it, so an
@@ -52,6 +58,12 @@ install the current app on both platforms.
   their window `WM_CLOSE` so the app kills its PTYs the normal way, and kills only what's left 5 s
   later. Matching by name would close every HyprSpace on the machine. The installer is 32-bit and
   can't read a 64-bit process's path, so it runs the 64-bit PowerShell through `Sysnative`.
+- **It also matches on the command line.** A claude that dies while starting a hook or status
+  line leaves that `hyprspace.exe` suspended for good, with no path to read, holding the exe open.
+  The app ends such strays at launch and before an update (`hooks::end_strays`), and the installer
+  catches any it missed.
+- **An update that fails reopens the old version** (`.onInstFailed`), so the user isn't left
+  without the app.
 - `package-windows.ps1 -Test` builds "HyprSpace Test" with its own name, keys, folder and
   AppUserModelID, so it can be installed, updated and removed beside the real app.
   `scripts/check-windows-install.ps1` runs those checks.

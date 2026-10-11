@@ -4,6 +4,18 @@ Release notes for HyprSpace. Written **at ship time** — when you ask to ship, 
 changed since the last release and writes a few user-facing bullets; `deploy.ps1` records them here
 and uses them as the release notes + the in-app "What's new" notification. No per-task bookkeeping.
 
+## 0.24.16 — 2026-10-11
+
+- Updates install quietly in the background and reopen the app, with no installer window
+- A failed update reopens the app and offers to try again
+- Updating asks first when threads are still running
+- A long message scrolls inside the message box instead of pushing the thread off screen
+- Click an attached image to see it full size
+- Fast mode for Opus 5.5, Opus 5 and Opus 4.8, paid from usage credits
+- Older Claude models are back, folded under Legacy models
+- /compact shows Compacting while it runs and how much it saved
+- A paired computer that goes to sleep shows as offline, and a message to it says it didn't arrive
+
 ## 0.24.15 — 2026-10-10
 
 - Run threads on your other computers. Pair one in Settings, Computers, see its threads in your sidebar, and pick which computer a new thread starts on.

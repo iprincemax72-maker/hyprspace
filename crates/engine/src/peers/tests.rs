@@ -153,7 +153,7 @@ fn a_computer_pairs_drives_a_terminal_reads_a_journal_and_a_folder() {
         }) => Some(by),
         _ => None,
     });
-    assert_eq!(by, crate::phone::host_name());
+    assert_eq!(by, crate::phone::clip(&crate::phone::host_name()));
 
     // a structured thread's journal
     let chat = SessionId(51);

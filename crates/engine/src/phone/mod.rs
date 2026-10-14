@@ -1243,7 +1243,7 @@ fn short_code() -> String {
         .collect()
 }
 
-fn clip(name: &str) -> String {
+pub(crate) fn clip(name: &str) -> String {
     let name: String = name.chars().filter(|c| !c.is_control()).take(60).collect();
     match name.trim() {
         "" => "Phone".into(),

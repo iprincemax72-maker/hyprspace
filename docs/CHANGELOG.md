@@ -4,6 +4,17 @@ Release notes for HyprSpace. Written **at ship time** — when you ask to ship, 
 changed since the last release and writes a few user-facing bullets; `deploy.ps1` records them here
 and uses them as the release notes + the in-app "What's new" notification. No per-task bookkeeping.
 
+## 0.24.17 — 2026-10-14
+
+- Play MP4, MOV and M4V videos inside the app, with sound, seeking, volume, zoom and drag.
+- Click an image or a video in a sent message to open it.
+- Start a thread in its own git worktree from the composer and pick the branch it starts from. When it's done, merge it, open a pull request or remove it from the thread's menu.
+- A structured run now ends with a card listing the files it edited, with a button to undo them.
+- Compacting shows in the sidebar and has its own spinner.
+- Tables in replies size their columns to fit their content, and wide tables scroll sideways.
+- An update button sits next to Settings, and clicking the logo opens a new thread.
+- The question card is redesigned, and hovering a settled thread shows when it started and last ran.
+
 ## 0.24.16 — 2026-10-11
 
 - Updates install quietly in the background and reopen the app, with no installer window

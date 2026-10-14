@@ -38,6 +38,9 @@ pub struct RowCard {
     pub model: SharedString,
     /// The effort it runs at, "High" or "High (default)", for a model that takes one.
     pub effort: Option<SharedString>,
+    /// When it was made and when it last did something: "today 2:14 PM (3h ago)".
+    pub started: Option<SharedString>,
+    pub active: Option<SharedString>,
     /// Each subagent running: what it was asked, and how long it has run.
     pub subagents: Vec<(SharedString, SharedString)>,
 }
@@ -200,7 +203,17 @@ impl RowCard {
                         .child(icon("gauge", 11., colors::text3()))
                         .child(div().min_w_0().truncate().child(e)),
                 )
-            }));
+            }))
+            .children(
+                self.started
+                    .clone()
+                    .map(|s| field("Started", div().min_w_0().truncate().child(s))),
+            )
+            .children(
+                self.active
+                    .clone()
+                    .map(|a| field("Active", div().min_w_0().truncate().child(a))),
+            );
         let subs = (!self.subagents.is_empty()).then(|| {
             let more = self.subagents.len().saturating_sub(SUBS_SHOWN);
             div()

@@ -21,7 +21,7 @@ use crate::assets::{icon, mark};
 use crate::colors;
 use crate::pace::Looping;
 use crate::root::{Action, MenuEntry, MenuItems, Rename, Root, Screen, View};
-use crate::time::{ago, local_now, now_ms, presets, to_ms, wake_short};
+use crate::time::{ago, local, local_now, now_ms, past_label, presets, to_ms, wake_short};
 use crate::transcript::Status;
 use crate::widgets;
 
@@ -314,6 +314,16 @@ impl Root {
                 .filter(|b| b.is_repo && !b.branch.is_empty() && b.branch != "HEAD")
                 .map(|b| b.branch.clone().into()),
         };
+        let now = now_ms();
+        let when = |ms: u64| {
+            (ms > 0).then(|| {
+                let at = past_label(local(ms), local_now());
+                match ago(ms, now).as_str() {
+                    "now" => format!("{at} (just now)").into(),
+                    a => format!("{at} ({a} ago)").into(),
+                }
+            })
+        };
         Some(RowCard {
             title: t.title.clone().into(),
             space: space.name.clone().into(),
@@ -326,6 +336,8 @@ impl Root {
             agent: t.agent().map(|l| l.agent),
             model: model.into(),
             effort: effort.map(Into::into),
+            started: when(t.created),
+            active: when(t.touched).filter(|_| t.touched > t.created),
             subagents: self
                 .subagents(id, cx)
                 .into_iter()
@@ -793,6 +805,18 @@ impl Root {
                 MouseButton::Right,
                 self.context_menu(self.thread_menu(t), cx),
             )
+            .on_hover(cx.listener(move |r, on: &bool, _, cx| r.row_hovered(id, *on, cx)))
+            .child({
+                let bounds = self.row_bounds.clone();
+                canvas(
+                    |_, _, _| (),
+                    move |b, _, _, _| {
+                        bounds.borrow_mut().insert(id, b);
+                    },
+                )
+                .absolute()
+                .size_full()
+            })
             .on_drag(
                 PaneDrag {
                     pane: Pane::Thread { id },

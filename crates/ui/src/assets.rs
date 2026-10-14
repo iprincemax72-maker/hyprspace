@@ -40,6 +40,7 @@ const FILES: &[(&str, &[u8])] = files!(
     "icons/check.svg",
     "icons/git-branch.svg",
     "icons/circle-alert.svg",
+    "icons/circle-help.svg",
     "icons/square.svg",
     "icons/sparkles.svg",
     "icons/circle-check.svg",

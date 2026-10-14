@@ -110,6 +110,19 @@ pub fn answers(qs: &[Question], picks: &[Vec<usize>]) -> Option<Vec<(String, Str
         .collect()
 }
 
+pub fn chosen(q: &Question, said: &str) -> Vec<usize> {
+    if let Some(i) = q.options.iter().position(|(label, _)| label == said) {
+        return vec![i];
+    }
+    let said = format!(", {said}, ");
+    q.options
+        .iter()
+        .enumerate()
+        .filter(|(_, (label, _))| said.contains(&format!(", {label}, ")))
+        .map(|(i, _)| i)
+        .collect()
+}
+
 fn frame(pending: bool) -> gpui::Div {
     div()
         .flex()
@@ -159,7 +172,7 @@ pub fn question_card(
 ) -> AnyElement {
     let qs = questions(input);
     let pending = answer.is_none() && !expired;
-    let picks = match v.answered.get(request).filter(|_| !pending) {
+    let picks: Vec<Vec<usize>> = match v.answered.get(request).filter(|_| !pending) {
         Some(given) => qs
             .iter()
             .map(|q| {
@@ -168,167 +181,237 @@ pub fn question_card(
                     .find(|(text, _)| *text == q.text)
                     .map(|(_, a)| a.as_str())
                     .unwrap_or_default();
-                q.options
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, (label, _))| said.split(", ").any(|s| s == label))
-                    .map(|(i, _)| i)
-                    .collect()
+                chosen(q, said)
             })
             .collect(),
         None => v.picks.get(request).cloned().unwrap_or_default(),
     };
-    let state = match (answer, expired) {
-        (Some(Answer::Deny), _) => Some("Skipped"),
-        (Some(_), _) => Some("Answered"),
-        (None, true) => Some("Not answered"),
-        (None, false) => None,
+    if pending {
+        asking(v, request, &qs, &picks, cx)
+    } else {
+        asked(&qs, &picks, answer)
+    }
+}
+
+fn asking(
+    v: &TranscriptView,
+    request: &str,
+    qs: &[Question],
+    picks: &[Vec<usize>],
+    cx: &mut Context<TranscriptView>,
+) -> AnyElement {
+    let step = v
+        .steps
+        .get(request)
+        .copied()
+        .unwrap_or(0)
+        .min(qs.len().saturating_sub(1));
+    let picked = |qi: usize| picks.get(qi).is_some_and(|p| !p.is_empty());
+    let title = match qs.len() {
+        0 | 1 => "Claude has a question".to_string(),
+        n => format!("Claude has {n} questions"),
     };
-    let mut card = frame(pending).child(heading(
-        "circle-alert",
-        if pending {
-            colors::waiting()
-        } else {
-            colors::text3()
-        },
-        if qs.len() > 1 {
-            "Claude has a few questions"
-        } else {
-            "Claude has a question"
-        },
-        state,
-    ));
-    for (qi, q) in qs.iter().enumerate() {
-        let chosen = picks.get(qi).cloned().unwrap_or_default();
-        let mut block = div().flex().flex_col().gap(px(8.)).child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .when(!q.header.is_empty(), |d| {
-                    d.child(
-                        div()
-                            .px(px(7.))
-                            .py(px(1.))
-                            .rounded_full()
-                            .bg(colors::ink(0.07))
-                            .text_size(px(10.5))
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(colors::text2())
-                            .child(SharedString::from(q.header.clone())),
-                    )
-                })
-                .child(
+    let mut card = frame(true).child(heading("circle-help", colors::waiting(), &title, None));
+    if qs.len() > 1 {
+        card = card.child(div().flex().flex_wrap().gap(px(4.)).children(
+            qs.iter().enumerate().map(|(qi, q)| {
+                let on = qi == step;
+                let request = request.to_string();
+                let name = if q.header.is_empty() {
+                    format!("Question {}", qi + 1)
+                } else {
+                    q.header.clone()
+                };
+                div()
+                    .id(SharedString::from(format!("q-tab-{request}-{qi}")))
+                    .flex()
+                    .items_center()
+                    .gap(px(5.))
+                    .h(px(24.))
+                    .px(px(9.))
+                    .rounded(px(7.))
+                    .text_size(px(12.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .cursor_pointer()
+                    .text_color(if on { colors::text1() } else { colors::text3() })
+                    .when(on, |d| d.bg(colors::ink(0.08)))
+                    .when(!on, |d| d.hover(|s| s.bg(colors::ink(0.05))))
+                    .when(picked(qi), |d| {
+                        d.child(icon("check", 11., colors::accent()))
+                    })
+                    .child(SharedString::from(name))
+                    .on_click(cx.listener(move |v, _: &ClickEvent, _, cx| {
+                        v.show_question(&request, qi, cx)
+                    }))
+            }),
+        ));
+    }
+    let Some(q) = qs.get(step) else {
+        return card.into_any_element();
+    };
+    let chosen = picks.get(step).cloned().unwrap_or_default();
+    let last = step + 1 >= qs.len();
+    card = card.child(
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(3.))
+            .child(
+                div()
+                    .text_size(px(14.))
+                    .text_color(colors::text1())
+                    .child(SharedString::from(q.text.clone())),
+            )
+            .when(q.multi, |d| {
+                d.child(
                     div()
-                        .text_size(px(13.5))
-                        .text_color(colors::text1())
-                        .child(SharedString::from(q.text.clone())),
-                ),
-        );
-        for (oi, (label, about)) in q.options.iter().enumerate() {
+                        .text_size(px(12.))
+                        .text_color(colors::text3())
+                        .child("Pick one or more."),
+                )
+            }),
+    );
+    card = card.child(div().flex().flex_col().gap(px(2.)).children(
+        q.options.iter().enumerate().map(|(oi, (label, about))| {
             let on = chosen.contains(&oi);
             let request = request.to_string();
             let multi = q.multi;
-            block = block.child(
+            let advance = !multi && !last;
+            div()
+                .id(SharedString::from(format!("q-{request}-{step}-{oi}")))
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .px(px(10.))
+                .py(px(8.))
+                .rounded(px(8.))
+                .cursor_pointer()
+                .when(on, |d| d.bg(colors::ink(0.07)))
+                .when(!on, |d| d.hover(|s| s.bg(colors::ink(0.04))))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap(px(2.))
+                        .child(
+                            div()
+                                .text_size(px(13.))
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(if on { colors::text1() } else { colors::text2() })
+                                .child(SharedString::from(label.clone())),
+                        )
+                        .when(!about.is_empty() && about != label, |d| {
+                            d.child(
+                                div()
+                                    .text_size(px(12.))
+                                    .text_color(colors::text3())
+                                    .child(SharedString::from(about.clone())),
+                            )
+                        }),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .size(px(16.))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .when(on, |d| d.child(icon("check", 14., colors::accent()))),
+                )
+                .on_click(cx.listener(move |v, _: &ClickEvent, _, cx| {
+                    v.pick_option(&request, step, oi, multi, advance, cx)
+                }))
+        }),
+    ));
+    let go = if last {
+        let ready = answers(qs, picks);
+        let request = request.to_string();
+        widgets::primary(("q-answer", v.id.0), "Answer")
+            .when(ready.is_none(), |d| d.opacity(0.5))
+            .on_click(cx.listener(move |v, _: &ClickEvent, _, cx| {
+                if let Some(a) = ready.clone() {
+                    v.answer_with(request.clone(), Answer::Allow, a, cx);
+                }
+            }))
+    } else {
+        let request = request.to_string();
+        let can = !chosen.is_empty();
+        widgets::primary(("q-next", v.id.0), "Next")
+            .when(!can, |d| d.opacity(0.5))
+            .on_click(cx.listener(move |v, _: &ClickEvent, _, cx| {
+                if can {
+                    v.show_question(&request, step + 1, cx)
+                }
+            }))
+    };
+    let skip = {
+        let request = request.to_string();
+        widgets::button(("q-skip", v.id.0), "Skip")
+            .h(px(26.))
+            .px(px(10.))
+            .on_click(cx.listener(move |v, _: &ClickEvent, _, cx| {
+                v.answer_with(request.clone(), Answer::Deny, Vec::new(), cx)
+            }))
+    };
+    card.child(div().flex().gap_2().child(go).child(skip))
+        .into_any_element()
+}
+
+fn asked(qs: &[Question], picks: &[Vec<usize>], answer: Option<Answer>) -> AnyElement {
+    let state = match answer {
+        Some(Answer::Deny) => "Skipped",
+        Some(_) => "Answered",
+        None => "Not answered",
+    };
+    let title = match qs.len() {
+        0 | 1 => "Claude asked a question".to_string(),
+        n => format!("Claude asked {n} questions"),
+    };
+    frame(false)
+        .gap(px(10.))
+        .child(heading("circle-help", colors::text3(), &title, Some(state)))
+        .children(qs.iter().enumerate().map(|(qi, q)| {
+            let said: Vec<&str> = picks
+                .get(qi)
+                .into_iter()
+                .flatten()
+                .filter_map(|&o| q.options.get(o).map(|(l, _)| l.as_str()))
+                .collect();
+            let reply = if said.is_empty() {
                 div()
-                    .id(SharedString::from(format!("q-{request}-{qi}-{oi}")))
+                    .text_size(px(13.))
+                    .text_color(colors::text3())
+                    .child("No answer")
+            } else {
+                div()
                     .flex()
                     .items_start()
-                    .gap(px(10.))
-                    .px(px(12.))
-                    .py(px(9.))
-                    .rounded(px(10.))
-                    .border_1()
-                    .border_color(if on {
-                        colors::accent().opacity(0.6)
-                    } else {
-                        colors::border1()
-                    })
-                    .bg(if on {
-                        colors::accent().opacity(0.1)
-                    } else {
-                        gpui::transparent_black()
-                    })
-                    .when(pending, |d| {
-                        d.cursor_pointer()
-                            .hover(|s| s.bg(colors::ink(0.05)))
-                            .on_click(cx.listener(move |v, _: &ClickEvent, _, cx| {
-                                v.pick_option(&request, qi, oi, multi, cx)
-                            }))
-                    })
+                    .gap(px(7.))
+                    .child(div().mt(px(2.)).child(icon("check", 13., colors::accent())))
                     .child(
                         div()
-                            .mt(px(2.))
-                            .size(px(14.))
-                            .flex_none()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(if multi { 4. } else { 7. }))
-                            .border_1()
-                            .border_color(if on {
-                                colors::accent()
-                            } else {
-                                colors::text3()
-                            })
-                            .when(on, |d| {
-                                d.bg(colors::accent()).child(icon(
-                                    "check",
-                                    10.,
-                                    colors::on_accent(),
-                                ))
-                            }),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(2.))
                             .min_w_0()
-                            .child(
-                                div()
-                                    .text_size(px(13.))
-                                    .font_weight(FontWeight::MEDIUM)
-                                    .text_color(colors::text1())
-                                    .child(SharedString::from(label.clone())),
-                            )
-                            .when(!about.is_empty(), |d| {
-                                d.child(
-                                    div()
-                                        .text_size(px(12.))
-                                        .text_color(colors::text3())
-                                        .child(SharedString::from(about.clone())),
-                                )
-                            }),
-                    ),
-            );
-        }
-        card = card.child(block);
-    }
-    if pending {
-        let ready = answers(&qs, &picks);
-        let send = {
-            let request = request.to_string();
-            widgets::primary(("q-answer", v.id.0), "Answer")
-                .when(ready.is_none(), |d| d.opacity(0.5))
-                .on_click(cx.listener(move |v, _: &ClickEvent, _, cx| {
-                    if let Some(a) = ready.clone() {
-                        v.answer_with(request.clone(), Answer::Allow, a, cx);
-                    }
-                }))
-        };
-        let skip = {
-            let request = request.to_string();
-            widgets::button(("q-skip", v.id.0), "Skip")
-                .h(px(26.))
-                .px(px(10.))
-                .on_click(cx.listener(move |v, _: &ClickEvent, _, cx| {
-                    v.answer_with(request.clone(), Answer::Deny, Vec::new(), cx)
-                }))
-        };
-        card = card.child(div().flex().gap_2().child(send).child(skip));
-    }
-    card.into_any_element()
+                            .text_size(px(13.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(colors::text1())
+                            .child(SharedString::from(said.join(", "))),
+                    )
+            };
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(3.))
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(colors::text3())
+                        .child(SharedString::from(q.text.clone())),
+                )
+                .child(reply)
+        }))
+        .into_any_element()
 }
 
 pub fn plan_card(
@@ -471,6 +554,22 @@ mod tests {
                 ("Extras?".into(), "Auth, Logs".into())
             ])
         );
+    }
+
+    #[test]
+    fn finds_the_pick_when_a_label_has_a_comma() {
+        let qs = questions(
+            r#"{"questions":[{"question":"How?","multiSelect":true,
+            "options":[{"label":"Remake all"},{"label":"Quick fix now, remake later"},
+            {"label":"Slaps only"}]}]}"#,
+        );
+        assert_eq!(chosen(&qs[0], "Quick fix now, remake later"), vec![1]);
+        assert_eq!(
+            chosen(&qs[0], "Remake all, Quick fix now, remake later"),
+            vec![0, 1]
+        );
+        assert_eq!(chosen(&qs[0], "Slaps only"), vec![2]);
+        assert!(chosen(&qs[0], "").is_empty());
     }
 
     #[test]

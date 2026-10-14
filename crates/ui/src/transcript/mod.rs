@@ -85,6 +85,7 @@ pub struct TranscriptView {
     stopping: bool,
     pub(super) suggest: crate::suggest::Suggest,
     pub(super) picks: std::collections::HashMap<String, Vec<Vec<usize>>>,
+    pub(super) steps: std::collections::HashMap<String, usize>,
     pub(super) expanded: HashSet<usize>,
     pub(super) answered: std::collections::HashMap<String, Vec<(String, String)>>,
     pub(super) perm_menu: Option<gpui::Point<gpui::Pixels>>,
@@ -174,6 +175,7 @@ impl TranscriptView {
             stopping: false,
             suggest: Default::default(),
             picks: Default::default(),
+            steps: Default::default(),
             expanded: HashSet::new(),
             answered: Default::default(),
             perm_menu: None,
@@ -410,6 +412,7 @@ impl TranscriptView {
         question: usize,
         option: usize,
         multi: bool,
+        advance: bool,
         cx: &mut Context<Self>,
     ) {
         let picks = self.picks.entry(request.to_string()).or_default();
@@ -422,6 +425,25 @@ impl TranscriptView {
             (true, false) => chosen.push(option),
             (false, _) => *chosen = vec![option],
         }
+        if advance {
+            let request = request.to_string();
+            cx.spawn(async move |this, cx| {
+                cx.background_executor()
+                    .timer(Duration::from_millis(200))
+                    .await;
+                let _ = this.update(cx, |v, cx| {
+                    if v.steps.get(&request).copied().unwrap_or(0) == question {
+                        v.show_question(&request, question + 1, cx);
+                    }
+                });
+            })
+            .detach();
+        }
+        cx.notify();
+    }
+
+    pub(super) fn show_question(&mut self, request: &str, question: usize, cx: &mut Context<Self>) {
+        self.steps.insert(request.to_string(), question);
         cx.notify();
     }
 

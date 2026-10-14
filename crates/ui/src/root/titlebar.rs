@@ -117,9 +117,26 @@ impl Root {
             .flex()
             .flex_none()
             .items_center()
-            .gap(px(6.))
-            .pl(px(4.))
-            .child(crate::assets::logo(14.))
+            .gap(px(2.))
+            .child(
+                div()
+                    .id("logo-home")
+                    .occlude()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .justify_center()
+                    .size(px(22.))
+                    .rounded(px(6.))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(colors::surface3()))
+                    .tooltip(widgets::tip("New thread"))
+                    .child(crate::assets::logo(14.))
+                    .on_click(cx.listener(|r, _: &ClickEvent, window, cx| {
+                        r.menu = None;
+                        r.compose(r.current_space(), window, cx);
+                    })),
+            )
             .child(
                 widgets::icon_button("sidebar-toggle", "panel-left", 28.)
                     .occlude()

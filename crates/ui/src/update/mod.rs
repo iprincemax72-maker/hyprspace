@@ -185,6 +185,10 @@ impl Updater {
         }
     }
 
+    pub(crate) fn checked_by_hand(&self) -> bool {
+        !self.silent
+    }
+
     /// Download progress from 0 to 1, or None while the size is unknown.
     pub(crate) fn progress(&self) -> Option<f32> {
         match self.phase {

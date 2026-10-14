@@ -33,10 +33,13 @@ use hyprspace_theme::MONO;
 
 use crate::assets::icon;
 use crate::colors;
+use crate::pace::Looping;
 use crate::palette::TogglePalette;
 use crate::root::{MenuItems, Root, Screen, SidebarDrag};
 use crate::slide::{animations, ease_out};
 use crate::time::now_ms;
+use crate::update::Phase;
+use crate::widgets::tip_text;
 use crate::workbench::PaneDrag;
 
 pub const MIN_WIDTH: f32 = 200.;
@@ -782,9 +785,8 @@ impl Root {
                     .pr(px(6.))
                     .rounded(px(8.))
                     .border_1()
-                    .border_color(colors::border1())
-                    .bg(colors::ink(0.04))
-                    .hover(|s| s.bg(colors::ink(0.06)))
+                    .border_color(colors::border0())
+                    .hover(|s| s.bg(colors::ink(0.03)))
                     .cursor_text()
                     .child(icon("search", 14., glass))
                     .child(
@@ -808,11 +810,10 @@ impl Root {
                     .size(px(32.))
                     .rounded(px(8.))
                     .border_1()
-                    .border_color(colors::border1())
-                    .bg(colors::ink(0.04))
+                    .border_color(colors::border0())
                     .cursor_pointer()
-                    .hover(|s| s.bg(colors::ink(0.08)))
-                    .child(icon("square-pen", 15., colors::text2()))
+                    .hover(|s| s.bg(colors::ink(0.06)))
+                    .child(icon("plus", 16., colors::text2()))
                     .on_click(cx.listener(|r, _: &ClickEvent, window, cx| {
                         r.menu = None;
                         r.pick_thread_folder(window, cx);
@@ -904,6 +905,59 @@ impl Root {
                         cx.listener(|r, _: &ClickEvent, window, cx| r.open_settings(window, cx)),
                     ),
             )
+            .child(self.update_button(cx))
+            .into_any_element()
+    }
+
+    fn update_button(&self, cx: &mut Context<Self>) -> AnyElement {
+        let u = self.updater.read(cx);
+        let (name, tint) = match &u.phase {
+            Phase::Available(_) => ("download", colors::accent()),
+            Phase::UpToDate if u.checked_by_hand() => ("check", colors::ok()),
+            Phase::Failed(_) => ("refresh-cw", colors::error()),
+            _ => ("refresh-cw", colors::text3()),
+        };
+        let glyph = icon(name, 15., tint);
+        let glyph = if matches!(u.phase, Phase::Checking | Phase::Busy(_)) {
+            glyph
+                .looping(800, |s, t| {
+                    s.with_transformation(Transformation::rotate(percentage(t)))
+                })
+                .into_any_element()
+        } else {
+            glyph.into_any_element()
+        };
+        let tip = match &u.phase {
+            Phase::Idle => "Check for updates".to_string(),
+            _ => u.status(),
+        };
+        let install = matches!(u.phase, Phase::Available(_));
+        let off = matches!(u.phase, Phase::Unmanaged | Phase::Busy(_));
+        div()
+            .id("sidebar-update")
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .size(px(28.))
+            .rounded(px(6.))
+            .cursor_pointer()
+            .hover(|s| s.bg(row_hover()))
+            .child(glyph)
+            .tooltip(tip_text(tip))
+            .when(off, |b| b.opacity(0.5).cursor_default())
+            .when(!off, |b| {
+                b.on_click(cx.listener(move |r, _: &ClickEvent, _, cx| {
+                    let working = r.working();
+                    r.updater.update(cx, |u, cx| {
+                        if install {
+                            u.install(working, cx)
+                        } else {
+                            u.check(false, cx)
+                        }
+                    })
+                }))
+            })
             .into_any_element()
     }
 }

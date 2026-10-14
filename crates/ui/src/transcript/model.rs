@@ -467,6 +467,7 @@ impl Transcript {
 
     /// After a journal replay: whatever was live when the app closed is over now.
     pub fn settle(&mut self) {
+        self.compacting = false;
         if self.run.take().is_some() {
             self.note("The app closed before this run finished.");
         }
@@ -476,6 +477,7 @@ impl Transcript {
 
     fn end_session(&mut self) {
         self.run = None;
+        self.compacting = false;
         self.failed = true;
         self.expire();
         self.stop_agents();
@@ -830,5 +832,13 @@ mod tests {
                 "Compacted the conversation."
             ]
         );
+        t.apply(RunEvent::Compacting);
+        t.apply(RunEvent::Failed {
+            message: "gone".into(),
+        });
+        assert!(!t.compacting);
+        t.apply(RunEvent::Compacting);
+        t.settle();
+        assert!(!t.compacting);
     }
 }

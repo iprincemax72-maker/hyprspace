@@ -251,7 +251,11 @@ fn working(v: &TranscriptView) -> AnyElement {
         .h(px(22.))
         .text_size(px(12.5))
         .text_color(colors::text3())
-        .child(spinner::eclipse("working", colors::text2()))
+        .child(if v.model.compacting && !v.stopping {
+            spinner::compass(colors::text2())
+        } else {
+            spinner::eclipse("working", colors::text2())
+        })
         .child(label)
         .children(doing.map(|d| div().min_w_0().truncate().child(d)))
         .child(div().flex_1())

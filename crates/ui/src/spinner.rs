@@ -3,8 +3,11 @@
 
 use std::f32::consts::TAU;
 
-use gpui::{AnyElement, ElementId, Hsla, IntoElement, div, prelude::*, px};
+use gpui::{
+    AnyElement, ElementId, Hsla, IntoElement, Transformation, div, prelude::*, px, radians,
+};
 
+use crate::assets::icon;
 use crate::pace::Looping;
 
 /// Two dots circling each other on an ellipse seen edge on: the one going behind shrinks and
@@ -37,5 +40,21 @@ pub fn eclipse(id: impl Into<ElementId>, color: Hsla) -> AnyElement {
                         .opacity(0.65 + 0.35 * near)
                 })
         }))
+        .into_any_element()
+}
+
+pub fn compass(color: Hsla) -> AnyElement {
+    icon("compass", 13., color)
+        .looping(2000, |s, t| {
+            let quarters = t * 4.;
+            let step = quarters.floor();
+            let f = quarters - step;
+            let eased = if f < 0.5 {
+                4. * f * f * f
+            } else {
+                1. - (-2. * f + 2.).powi(3) / 2.
+            };
+            s.with_transformation(Transformation::rotate(radians((step + eased) * TAU / 4.)))
+        })
         .into_any_element()
 }

@@ -220,6 +220,9 @@ impl TranscriptView {
 
     /// The tool the run is in, while it runs one.
     pub fn doing(&self) -> Option<String> {
+        if self.model.compacting {
+            return Some("Compacting".into());
+        }
         self.model.running_tool().map(tool::label)
     }
 

@@ -95,6 +95,24 @@ impl Session {
     pub fn is_closed(&self) -> bool {
         self.task.is_finished()
     }
+
+    pub fn handle(&self) -> Handle {
+        Handle(self.tx.clone())
+    }
+}
+
+/// Sends and interrupts for a session from another task. It doesn't keep the CLI alive.
+#[derive(Clone)]
+pub struct Handle(mpsc::UnboundedSender<Input>);
+
+impl Handle {
+    pub fn send(&self, prompt: Prompt) {
+        let _ = self.0.send(Input::Send(prompt));
+    }
+
+    pub fn interrupt(&self) {
+        let _ = self.0.send(Input::Interrupt);
+    }
 }
 
 impl Drop for Session {

@@ -5,6 +5,7 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
+use hyprspace_proto::run::RunFile;
 use hyprspace_proto::{Answer, Prompt, RunEvent, RunStatus, Tool};
 
 use crate::markdown::{self, Block};
@@ -49,6 +50,21 @@ pub enum Item {
         error: Option<String>,
     },
     Note(String),
+    Changes {
+        before: String,
+        after: String,
+        files: Vec<RunFile>,
+        all: bool,
+        undo: Undo,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Undo {
+    Ready,
+    Busy,
+    Done(String),
+    Failed(String),
 }
 
 /// An Agent call: the subagent's own tool calls as they happen, then its report.
@@ -462,6 +478,31 @@ impl Transcript {
                 self.items.push(Item::Error(message));
                 self.end_session();
             }
+            RunEvent::Changes {
+                before,
+                after,
+                files,
+            } => self.items.push(Item::Changes {
+                before,
+                after,
+                files,
+                all: false,
+                undo: Undo::Ready,
+            }),
+            RunEvent::Undone { before, result } => {
+                let card = self.items.iter_mut().rev().find_map(|i| match i {
+                    Item::Changes {
+                        before: b, undo, ..
+                    } if *b == before => Some(undo),
+                    _ => None,
+                });
+                if let Some(undo) = card {
+                    *undo = match result {
+                        Ok(line) => Undo::Done(line),
+                        Err(e) => Undo::Failed(e),
+                    };
+                }
+            }
         }
     }
 
@@ -797,6 +838,41 @@ mod tests {
         assert!(matches!(t.items.last(), Some(Item::Note(_))));
         assert_ne!(t.status(), Status::Waiting);
         t.parse();
+    }
+
+    #[test]
+    fn a_run_s_changes_card_takes_its_undo() {
+        use hyprspace_proto::run::{ChangeKind, RunFile};
+        let mut t = Transcript::default();
+        let file = RunFile {
+            path: "a.rs".into(),
+            kind: ChangeKind::Update,
+            added: 2,
+            removed: 1,
+        };
+        for before in ["t1", "t2"] {
+            t.apply(RunEvent::Changes {
+                before: before.into(),
+                after: "x".into(),
+                files: vec![file.clone()],
+            });
+        }
+        t.apply(RunEvent::Undone {
+            before: "t1".into(),
+            result: Ok("Put back 1 file.".into()),
+        });
+        let undos: Vec<&Undo> = t
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                Item::Changes { undo, .. } => Some(undo),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            undos,
+            [&Undo::Done("Put back 1 file.".into()), &Undo::Ready]
+        );
     }
 
     #[test]

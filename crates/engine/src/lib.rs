@@ -120,10 +120,56 @@ impl Engine {
     }
 }
 
+type Say = Arc<dyn Fn(RunEvent) + Send + Sync>;
+
 /// A live structured session and the journal it writes to, if any.
 struct Live {
     session: Session,
     journal: Option<Arc<Journal>>,
+    say: Say,
+    queue: UnboundedSender<Ask>,
+}
+
+enum Ask {
+    Prompt(hyprspace_proto::Prompt),
+    Interrupt,
+}
+
+/// Hands a session its prompts and interrupts in order. A prompt that starts a run, not one that
+/// steers it, waits for a snapshot of the folder on the blocking pool first, so the run's changes
+/// can be listed and undone.
+fn queue(
+    handle: hyprspace_harness::Handle,
+    run: Arc<Mutex<Option<String>>>,
+    cwd: Arc<Mutex<PathBuf>>,
+) -> UnboundedSender<Ask> {
+    let (tx, mut rx) = mpsc::unbounded::<Ask>();
+    tokio::spawn(async move {
+        while let Some(ask) = rx.next().await {
+            let prompt = match ask {
+                Ask::Prompt(p) => p,
+                Ask::Interrupt => {
+                    handle.interrupt();
+                    continue;
+                }
+            };
+            if lock(&run).is_none() {
+                let folder = lock(&cwd).clone();
+                let tree = tokio::task::spawn_blocking(move || git::snapshot(&folder))
+                    .await
+                    .ok()
+                    .flatten();
+                // empty outside a repo, so the run's steers don't try again
+                *lock(&run) = Some(tree.unwrap_or_default());
+            }
+            handle.send(prompt);
+        }
+    });
+    tx
+}
+
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 impl Live {
@@ -131,6 +177,10 @@ impl Live {
         if let Some(j) = &self.journal {
             j.record(entry);
         }
+    }
+
+    fn send(&self, prompt: hyprspace_proto::Prompt) {
+        let _ = self.queue.unbounded_send(Ask::Prompt(prompt));
     }
 }
 
@@ -183,7 +233,7 @@ async fn serve(
                 });
                 let events = tx.clone();
                 let record = journal.clone();
-                let emit: Emit = Box::new(move |event| {
+                let say: Say = Arc::new(move |event| {
                     if let Some(j) = record.as_ref().filter(|_| {
                         !matches!(event, RunEvent::Commands { .. } | RunEvent::Compacting)
                     }) {
@@ -193,14 +243,49 @@ async fn serve(
                     }
                     let _ = events.unbounded_send(Event::Run { id, event });
                 });
+                let run = Arc::new(Mutex::new(None::<String>));
+                let cwd = Arc::new(Mutex::new(launch.cwd.clone()));
+                let emit: Emit = {
+                    let (say, run, cwd) = (say.clone(), run.clone(), cwd.clone());
+                    let pool = tokio::runtime::Handle::current();
+                    Box::new(move |event| {
+                        if let RunEvent::Started { cwd: started, .. } = &event {
+                            *lock(&cwd) = started.clone();
+                        }
+                        let finished = matches!(event, RunEvent::Finished { .. });
+                        say(event);
+                        if finished
+                            && let Some(before) = lock(&run).take().filter(|b| !b.is_empty())
+                        {
+                            let (say, folder) = (say.clone(), lock(&cwd).clone());
+                            pool.spawn_blocking(move || {
+                                if let Some((after, files)) = git::run_changes(&folder, &before)
+                                    && !files.is_empty()
+                                {
+                                    say(RunEvent::Changes {
+                                        before,
+                                        after,
+                                        files,
+                                    });
+                                }
+                            });
+                        }
+                    })
+                };
                 match hyprspace_harness::with_mcp(agent, mcp).start(launch, emit) {
                     Ok(session) => {
-                        let live = Live { session, journal };
+                        let queue = queue(session.handle(), run, cwd);
+                        let live = Live {
+                            session,
+                            journal,
+                            say,
+                            queue,
+                        };
                         if let Some(prompt) = prompt {
                             live.record(Entry::Prompt {
                                 prompt: prompt.clone(),
                             });
-                            live.session.send(prompt);
+                            live.send(prompt);
                         }
                         structured.retain(|_, s| !s.session.is_closed());
                         structured.insert(id, live);
@@ -218,7 +303,7 @@ async fn serve(
                     live.record(Entry::Prompt {
                         prompt: prompt.clone(),
                     });
-                    live.session.send(prompt);
+                    live.send(prompt);
                 }
                 None => {
                     let _ = tx.unbounded_send(Event::Failed {
@@ -227,9 +312,29 @@ async fn serve(
                     });
                 }
             },
+            Command::Undo {
+                id,
+                cwd,
+                before,
+                after,
+                files,
+            } => {
+                let say = structured.get(&id).map(|live| live.say.clone());
+                let events = tx.clone();
+                tokio::task::spawn_blocking(move || {
+                    let result = git::undo_run(&cwd, &before, &after, &files);
+                    let event = RunEvent::Undone { before, result };
+                    match say {
+                        Some(say) => say(event),
+                        None => {
+                            let _ = events.unbounded_send(Event::Run { id, event });
+                        }
+                    }
+                });
+            }
             Command::Interrupt { id } => {
                 if let Some(live) = structured.get(&id) {
-                    live.session.interrupt();
+                    let _ = live.queue.unbounded_send(Ask::Interrupt);
                 }
             }
             Command::Approve {

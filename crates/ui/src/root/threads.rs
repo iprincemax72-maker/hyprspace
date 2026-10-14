@@ -532,6 +532,12 @@ impl Root {
                 self.save();
             }
             TranscriptEvent::ShowMedia(path) => self.show_media(path.clone(), cx),
+            TranscriptEvent::Open(pane) => self.work.show = Some(pane.clone()),
+            TranscriptEvent::ViewChanges => {
+                self.state.dock.open = true;
+                self.state.dock.tab = hyprspace_proto::state::DockTab::Git;
+                self.save();
+            }
             TranscriptEvent::Commands(agent, names) => {
                 if self.state.commands.get(agent.cli()) != Some(names) {
                     self.state

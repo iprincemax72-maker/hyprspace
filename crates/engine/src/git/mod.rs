@@ -2,6 +2,7 @@
 // shells out to the user's own git and blocks, so callers run these off the UI thread.
 // Errors are user-facing strings.
 
+mod checkpoint;
 mod commit;
 mod setup;
 mod status;
@@ -10,6 +11,7 @@ mod worktree;
 use std::path::Path;
 use std::process::Command;
 
+pub use checkpoint::{changes as run_changes, snapshot, undo as undo_run};
 pub use commit::{commit, create_pr, file_op, pr_defaults, push};
 pub use setup::{clone, create_project_dir, init, init_repo, new_project};
 pub use status::{

@@ -785,6 +785,9 @@ fn item(
             .text_color(colors::text3())
             .child(text.clone())
             .into_any_element(),
+        Item::Changes {
+            files, all, undo, ..
+        } => super::changes::card(v, ix, files, *all, undo, cx),
     }
 }
 

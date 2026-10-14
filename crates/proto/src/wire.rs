@@ -83,6 +83,15 @@ pub enum Command {
     Close {
         id: SessionId,
     },
+    /// Put back the files a structured session's run changed, as its `RunEvent::Changes` listed
+    /// them. A file changed again since is left alone. Answered with `RunEvent::Undone`.
+    Undo {
+        id: SessionId,
+        cwd: PathBuf,
+        before: String,
+        after: String,
+        files: Vec<String>,
+    },
     /// Find the file behind Claude's `[Image #n]` marker in a terminal session, for its preview.
     /// `conversation` is the Claude conversation the session is on. Answered with `ImageFound`.
     FindImage {

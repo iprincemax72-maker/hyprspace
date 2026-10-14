@@ -187,6 +187,28 @@ pub enum RunEvent {
     Failed {
         message: String,
     },
+    /// The files a run changed, from snapshots of its folder taken as it started and ended. Comes
+    /// after the run's `Finished`, and only in a git repo.
+    Changes {
+        before: String,
+        after: String,
+        files: Vec<RunFile>,
+    },
+    /// The answer to `Command::Undo` for the run whose `Changes` had `before`.
+    Undone {
+        before: String,
+        result: Result<String, String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunFile {
+    /// Relative to the repo's top folder.
+    pub path: String,
+    pub kind: ChangeKind,
+    pub added: u32,
+    pub removed: u32,
 }
 
 /// The user's answer to a `RunEvent::Approval`.

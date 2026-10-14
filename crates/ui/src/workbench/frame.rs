@@ -41,6 +41,9 @@ impl Root {
         if let Some((path, line, col)) = self.work.pending.take() {
             self.open_path(path, line, col, window, cx);
         }
+        if let Some(pane) = self.work.show.take() {
+            self.show_viewer(pane, window, cx);
+        }
         self.sync_dock(space, cx);
         // a thread restored from the last run starts its session when it is first shown
         if !self.views.contains_key(&thread)

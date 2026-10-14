@@ -5,6 +5,7 @@
 mod approval;
 mod ask;
 mod branch;
+mod changes;
 mod model;
 mod motion;
 mod render;
@@ -43,6 +44,8 @@ pub enum TranscriptEvent {
     ResumeAt(Option<u64>),
     ShowMedia(PathBuf),
     Commands(hyprspace_proto::Agent, Vec<String>),
+    Open(hyprspace_proto::Pane),
+    ViewChanges,
 }
 
 pub struct TranscriptView {

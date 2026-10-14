@@ -58,6 +58,7 @@ pub struct Work {
     notice_task: Option<Task<()>>,
     /// A path a terminal asked to open, waiting for the next draw to have the window.
     pub(crate) pending: Option<(PathBuf, Option<u32>, Option<u32>)>,
+    pub(crate) show: Option<Pane>,
     /// What the dock was last told, so it is only told again when that changes.
     dock_sync: Option<DockSync>,
     /// The dock's slide (`crate::slide`).
@@ -89,6 +90,7 @@ impl Work {
             notice: None,
             notice_task: None,
             pending: None,
+            show: None,
             dock_sync: None,
             dock_flips: Default::default(),
         }

@@ -316,6 +316,22 @@ impl Root {
         if let FolderEvent::Git { cwd, status } = &e {
             self.git.insert(cwd.clone(), status.clone());
         }
+        if let FolderEvent::Branches { cwd, branches } = &e {
+            self.composer
+                .update(cx, |c, cx| c.set_branches(cwd, branches.clone(), cx));
+        }
+        if let FolderEvent::WorktreeAdded { request, result } = &e {
+            self.composer
+                .update(cx, |c, cx| c.worktree_added(*request, result.clone(), cx));
+        }
+        if let FolderEvent::WorktreeDone {
+            path,
+            action,
+            result,
+        } = &e
+        {
+            self.worktree_done(path, *action, result, cx);
+        }
         if let FolderEvent::Files { cwd, files } = &e {
             crate::suggest::set_files(cwd.clone(), files.clone(), cx);
             for view in self.views.values() {
@@ -359,7 +375,7 @@ impl Root {
     }
 
     /// A line in the bar that fades after a few seconds.
-    fn notify(&mut self, message: String, cx: &mut Context<Self>) {
+    pub(crate) fn notify(&mut self, message: String, cx: &mut Context<Self>) {
         self.work.notice = Some(message.into());
         self.work.notice_task = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(Duration::from_secs(5)).await;

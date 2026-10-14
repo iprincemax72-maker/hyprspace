@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::agents::Agent;
 use crate::folder::Opener;
+use crate::git::Worktree;
 use crate::run::{Launch, Permission, Prompt, RunEvent};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -204,6 +205,8 @@ pub struct Thread {
     pub resume_at: Option<u64>,
     pub parent: Option<u64>,
     pub pinned: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<Worktree>,
 }
 
 /// When a snoozed thread comes back.
@@ -234,6 +237,7 @@ impl Default for Thread {
             resume_at: None,
             parent: None,
             pinned: None,
+            worktree: None,
         }
     }
 }

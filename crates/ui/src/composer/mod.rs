@@ -11,6 +11,7 @@ pub(crate) mod model_menu;
 pub(crate) mod pickers;
 pub(crate) mod repo;
 pub(crate) mod spaces;
+mod worktree;
 
 use std::path::PathBuf;
 
@@ -45,6 +46,7 @@ pub enum ComposerEvent {
         prompt: Option<Prompt>,
         title: String,
         terminal: bool,
+        worktree: Option<hyprspace_proto::git::Worktree>,
     },
     /// A clone finished. `open_here` starts the thread in the target space; otherwise the
     /// folder becomes its own space, with a thread when there was a task.
@@ -108,6 +110,11 @@ pub struct Composer {
     error: Option<String>,
     /// The branch of the folder the thread starts in, when it is a repo.
     branch: Option<String>,
+    worktree: bool,
+    waiting: Option<worktree::Waiting>,
+    base: Option<String>,
+    branches: Vec<String>,
+    branch_menu: Option<Point<Pixels>>,
     suggest: crate::suggest::Suggest,
     _subs: Vec<Subscription>,
 }
@@ -187,6 +194,11 @@ impl Composer {
             next_request: 1,
             error: None,
             branch: None,
+            worktree: false,
+            waiting: None,
+            base: None,
+            branches: Vec::new(),
+            branch_menu: None,
             suggest: Default::default(),
             _subs: subs,
         }
@@ -206,10 +218,13 @@ impl Composer {
             self.target = target;
             self.clone.open_here = false;
             self.branch = None;
+            self.base = None;
+            self.branches.clear();
         }
         self.host_agents = host_agents;
         self.machine_menu = None;
         self.places_menu = None;
+        self.branch_menu = None;
         self.asked = None;
         self.ask_resumable();
         // the branch for the line under the box
@@ -455,6 +470,9 @@ impl Composer {
     }
 
     fn submit(&mut self, cx: &mut Context<Self>) {
+        if self.waiting.is_some() {
+            return;
+        }
         if self.saving > 0 {
             self.send_saved = true;
             return;
@@ -481,11 +499,16 @@ impl Composer {
         };
         let title = title_of(&text);
         let prompt = self.prompt(text);
+        if self.worktree_on() {
+            self.start_in_worktree(launch, prompt, title, cx);
+            return;
+        }
         cx.emit(ComposerEvent::Start {
             launch,
             prompt,
             title,
             terminal: self.terminal(),
+            worktree: None,
         });
         self.reset(cx);
     }
@@ -502,6 +525,7 @@ impl Composer {
             prompt,
             title: session.title,
             terminal: self.terminal(),
+            worktree: None,
         });
         self.reset(cx);
     }
@@ -691,6 +715,9 @@ impl Render for Composer {
         let places = self
             .places_menu
             .map(|at| spaces::menu(self, at, window, cx));
+        let branches = self
+            .branch_menu
+            .map(|at| worktree::branch_menu(self, at, window, cx));
         let models = self
             .models
             .as_ref()
@@ -760,6 +787,7 @@ impl Render for Composer {
             .children(menu)
             .children(machines)
             .children(places)
+            .children(branches)
             .children(models)
     }
 }

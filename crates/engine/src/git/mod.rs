@@ -15,7 +15,7 @@ pub use setup::{clone, create_project_dir, init, init_repo, new_project};
 pub use status::{
     branch_in_repo, branch_info, changes, changes_in_repo, diff, is_repo, ls_files, root,
 };
-pub use worktree::{create_worktree, remove_worktree};
+pub use worktree::{branches, create_worktree, finish as finish_worktree};
 
 pub type Result<T> = std::result::Result<T, String>;
 

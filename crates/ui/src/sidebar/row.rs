@@ -10,6 +10,7 @@ use gpui::{
     MouseButton, Pixels, SharedString, Transformation, canvas, div, linear_color_stop,
     linear_gradient, percentage, prelude::*, px, relative,
 };
+use hyprspace_proto::git::WorktreeAction;
 use hyprspace_proto::{Agent, Pane, Thread, ThreadKind};
 
 use super::card::RowCard;
@@ -392,8 +393,27 @@ impl Root {
             "Rename thread",
             Action::Rename(Rename::Thread(id)),
         ));
-        menu.push(MenuEntry::Divider);
         let mirrored = space.is_some_and(|s| s.machine.is_some());
+        if let Some(w) = t.worktree.as_ref().filter(|_| !mirrored) {
+            menu.push(MenuEntry::Sub {
+                label: "Worktree".into(),
+                entries: vec![
+                    MenuEntry::item(
+                        format!("Merge into {}", w.base),
+                        Action::Worktree(id, WorktreeAction::Merge),
+                    ),
+                    MenuEntry::item(
+                        "Create pull request",
+                        Action::Worktree(id, WorktreeAction::PullRequest),
+                    ),
+                    MenuEntry::item(
+                        "Remove worktree",
+                        Action::Worktree(id, WorktreeAction::Remove),
+                    ),
+                ],
+            });
+        }
+        menu.push(MenuEntry::Divider);
         if let Some(s) =
             space.filter(|s| s.cwd.is_some() && !mirrored && !self.work.openers.is_empty())
         {

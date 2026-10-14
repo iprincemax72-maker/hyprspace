@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::git::{BranchInfo, FileChange};
+use crate::git::{BranchInfo, FileChange, Worktree, WorktreeAction};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase")]
@@ -55,6 +55,26 @@ pub enum FolderCommand {
         cwd: PathBuf,
         path: String,
     },
+    /// A worktree off the repo holding `cwd`, on a new branch named after `name`, started from
+    /// `base` or the branch `cwd` is on. Answered with `WorktreeAdded`.
+    AddWorktree {
+        request: u64,
+        cwd: PathBuf,
+        name: String,
+        #[serde(default)]
+        base: Option<String>,
+    },
+    /// The repo's local branches a worktree can start from. Answered with `Branches`.
+    Branches {
+        cwd: PathBuf,
+    },
+    /// Merge a worktree's branch, open a pull request for it, or remove it. Work not yet
+    /// committed is committed first with `message`. Answered with `WorktreeDone`.
+    Worktree {
+        worktree: Worktree,
+        action: WorktreeAction,
+        message: String,
+    },
     /// Which apps can open a folder here. Answered with `Openers`.
     Openers,
     /// Open `path`, a folder, in `opener`. Answered only when that fails.
@@ -97,6 +117,19 @@ pub enum FolderEvent {
         cwd: PathBuf,
         path: String,
         text: Result<String, String>,
+    },
+    Branches {
+        cwd: PathBuf,
+        branches: Vec<String>,
+    },
+    WorktreeAdded {
+        request: u64,
+        result: Result<Worktree, String>,
+    },
+    WorktreeDone {
+        path: PathBuf,
+        action: WorktreeAction,
+        result: Result<String, String>,
     },
     Openers {
         openers: Vec<Opener>,

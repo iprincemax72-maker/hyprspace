@@ -1,6 +1,27 @@
 // Git records the dock and the composer show.
 
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Worktree {
+    pub path: PathBuf,
+    pub branch: String,
+    /// The branch it was made from, which a merge goes back into.
+    pub base: String,
+    /// The repo's own checkout, where `base` is merged.
+    pub repo: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WorktreeAction {
+    Merge,
+    PullRequest,
+    Remove,
+}
 
 /// One changed file in a working tree, with line counts where git has them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

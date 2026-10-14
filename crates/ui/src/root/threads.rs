@@ -763,11 +763,18 @@ impl Root {
             Action::Wake(id) => self.snooze(id, None, window, cx),
             Action::RemoveThread(id) => {
                 self.drop_view(id);
+                if let Some((_, t)) = self.state.thread(id)
+                    && let Some(w) = t.worktree.clone()
+                {
+                    let title = t.title.clone();
+                    self.send_worktree(w, hyprspace_proto::git::WorktreeAction::Remove, title);
+                }
                 for s in &mut self.state.spaces {
                     s.threads.retain(|t| t.id != id);
                 }
                 self.leave(window, cx);
             }
+            Action::Worktree(id, action) => self.finish_worktree(id, action, window, cx),
             Action::OpenIn(opener, space) => {
                 if let Some(cwd) = self.state.space(space).and_then(|s| s.cwd.clone()) {
                     self.open_in(opener, &cwd, cx);

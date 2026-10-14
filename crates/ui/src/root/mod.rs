@@ -7,6 +7,7 @@ mod render;
 mod settle;
 mod threads;
 pub mod titlebar;
+mod worktree;
 
 pub(crate) use threads::{folder_name, same_folder};
 
@@ -70,6 +71,7 @@ pub enum Action {
     CopyTitle(u64),
     CopyPath(u64),
     CopyConversation(u64),
+    Worktree(u64, hyprspace_proto::git::WorktreeAction),
 }
 
 /// One line of a right-click menu.
@@ -515,6 +517,7 @@ impl Root {
                 if let hyprspace_proto::ThreadKind::Terminal { cwd, .. } = &t.kind {
                     folders.push(cwd.clone());
                 }
+                folders.extend(t.worktree.as_ref().map(|w| w.path.clone()));
             }
         }
         folders.sort();
@@ -626,6 +629,7 @@ impl Root {
                 prompt,
                 title,
                 terminal,
+                worktree,
             } => {
                 if let Screen::Compose(Some(space)) = self.screen {
                     let start = Start {
@@ -636,8 +640,11 @@ impl Root {
                     };
                     if self.machines.space(space).is_some() {
                         self.start_remote(space, start, cx);
-                    } else {
-                        self.start_thread(space, start, true, window, cx);
+                    } else if let Some(id) = self.start_thread(space, start, true, window, cx)
+                        && let Some(t) = self.state.thread_mut(id)
+                    {
+                        t.worktree = worktree.clone();
+                        self.save();
                     }
                 }
             }

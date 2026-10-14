@@ -130,6 +130,33 @@ fn run(cmd: FolderCommand, lock: &Mutex<()>) -> Vec<FolderEvent> {
             let text = diff(&cwd, &path);
             vec![FolderEvent::Diff { cwd, path, text }]
         }
+        FolderCommand::AddWorktree {
+            request,
+            cwd,
+            name,
+            base,
+        } => {
+            let _g = git_lock();
+            let result = git::create_worktree(&cwd, &name, base.as_deref());
+            vec![FolderEvent::WorktreeAdded { request, result }]
+        }
+        FolderCommand::Branches { cwd } => {
+            let branches = git::branches(&cwd);
+            vec![FolderEvent::Branches { cwd, branches }]
+        }
+        FolderCommand::Worktree {
+            worktree,
+            action,
+            message,
+        } => {
+            let _g = git_lock();
+            let result = git::finish_worktree(&worktree, action, &message);
+            vec![FolderEvent::WorktreeDone {
+                path: worktree.path,
+                action,
+                result,
+            }]
+        }
         FolderCommand::Openers => vec![FolderEvent::Openers {
             openers: open::openers(),
         }],

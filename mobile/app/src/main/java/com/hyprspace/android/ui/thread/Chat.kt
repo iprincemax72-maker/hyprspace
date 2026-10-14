@@ -22,6 +22,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -152,6 +153,10 @@ fun Chat(
         snapshotFlow { list.isScrollInProgress }.collect { moving ->
             if (!moving) stuck = list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset < 24
         }
+    }
+    // let go of the bottom on touch, or a message landing as the finger lifts pulls the list back
+    LaunchedEffect(list) {
+        list.interactionSource.interactions.collect { if (it is DragInteraction.Start) stuck = false }
     }
     // what was sent or answered here shows at once, until the journal brings it back
     var pending by remember { mutableStateOf(listOf<Pending>()) }

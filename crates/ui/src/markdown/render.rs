@@ -4,7 +4,7 @@
 
 use gpui::{
     AnyElement, FontStyle, FontWeight, HighlightStyle, InteractiveText, IntoElement, SharedString,
-    StrikethroughStyle, StyledText, UnderlineStyle, div, prelude::*, px,
+    StrikethroughStyle, StyledText, UnderlineStyle, div, prelude::*, px, relative,
 };
 use hyprspace_theme::MONO;
 
@@ -88,17 +88,44 @@ fn block(b: &Block, key: &str) -> AnyElement {
     }
 }
 
+fn columns(head: &[Inline], rows: &[Vec<Inline>]) -> Vec<(f32, f32)> {
+    let count = rows
+        .iter()
+        .map(Vec::len)
+        .chain([head.len()])
+        .max()
+        .unwrap_or(0);
+    (0..count)
+        .map(|c| {
+            let cells = || {
+                std::iter::once(head.get(c))
+                    .chain(rows.iter().map(|r| r.get(c)))
+                    .flatten()
+            };
+            let longest = cells().map(|i| i.text.chars().count()).max().unwrap_or(0);
+            let word = cells()
+                .flat_map(|i| i.text.split_whitespace())
+                .map(|w| w.chars().count())
+                .max()
+                .unwrap_or(0);
+            (longest.clamp(3, 48) as f32, word.min(16) as f32 * 7.5 + 20.)
+        })
+        .collect()
+}
+
 fn table(head: &[Inline], rows: &[Vec<Inline>], key: &str) -> AnyElement {
+    let sizes = columns(head, rows);
     let row = |cells: &[Inline], key: String, head: bool| {
         div()
             .flex()
             .mx(px(4.))
             .when(!head, |d| d.border_t_1().border_color(colors::border1()))
             .children(cells.iter().enumerate().map(|(i, c)| {
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .px(px(10.))
+                let (grow, min) = sizes.get(i).copied().unwrap_or((3., 0.));
+                let mut cell = div().flex_basis(relative(0.)).min_w(px(min));
+                cell.style().flex_grow = Some(grow);
+                cell.style().flex_shrink = Some(1.);
+                cell.px(px(10.))
                     .py(px(7.))
                     .when(head, |d| {
                         d.font_weight(FontWeight::MEDIUM)
@@ -109,16 +136,23 @@ fn table(head: &[Inline], rows: &[Vec<Inline>], key: &str) -> AnyElement {
             }))
     };
     div()
-        .flex()
-        .flex_col()
-        .py(px(2.))
+        .id(SharedString::from(format!("{key}-table")))
+        .overflow_x_scroll()
+        .restrict_scroll_to_axis()
         .rounded(px(10.))
         .bg(colors::ink(0.035))
-        .child(row(head, format!("{key}-h"), true))
-        .children(
-            rows.iter()
-                .enumerate()
-                .map(|(i, r)| row(r, format!("{key}-{i}"), false)),
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .min_w_full()
+                .py(px(2.))
+                .child(row(head, format!("{key}-h"), true))
+                .children(
+                    rows.iter()
+                        .enumerate()
+                        .map(|(i, r)| row(r, format!("{key}-{i}"), false)),
+                ),
         )
         .into_any_element()
 }
@@ -180,4 +214,35 @@ pub fn inline(i: &Inline, key: &str) -> AnyElement {
             .into_any_element()
     };
     select::wrap(key, i.text.clone().into(), layout, body)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cell(text: &str) -> Inline {
+        Inline {
+            text: text.into(),
+            spans: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn columns_take_room_by_what_they_hold() {
+        let head = ["#", "Planet", "Notable"].map(cell).to_vec();
+        let rows = vec![
+            [
+                "1",
+                "Mercury",
+                "Smallest planet. Surface swings from about -180C at night to 430C in the day",
+            ]
+            .map(cell)
+            .to_vec(),
+            ["2", "Venus", "Hottest planet"].map(cell).to_vec(),
+        ];
+        let c = columns(&head, &rows);
+        assert_eq!(c.iter().map(|c| c.0).collect::<Vec<_>>(), [3., 7., 48.]);
+        assert!(c[0].1 < c[1].1 && c[1].1 < c[2].1);
+        assert_eq!(c[2].1, 7.5 * 8. + 20.);
+    }
 }

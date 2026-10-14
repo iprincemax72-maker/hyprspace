@@ -119,7 +119,10 @@ fn args(launch: &Launch) -> Vec<String> {
 // a file, not inline JSON: an npm shim runs through cmd /c, which can mangle the quotes
 fn fast_settings() -> Option<String> {
     let path = std::env::temp_dir().join("hyprspace-fast-mode.json");
-    std::fs::write(&path, r#"{"fastMode":true}"#).ok()?;
+    let body = r#"{"fastMode":true}"#;
+    if std::fs::read_to_string(&path).ok().as_deref() != Some(body) {
+        std::fs::write(&path, body).ok()?;
+    }
     Some(path.to_string_lossy().into_owned())
 }
 

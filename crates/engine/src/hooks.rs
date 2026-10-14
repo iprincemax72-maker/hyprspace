@@ -252,6 +252,24 @@ pub fn end_strays() {
             p.kill();
         }
     }
+    let running = |pid: u32| {
+        procs
+            .get(&Pid::from_u32(pid))
+            .and_then(|o| o.exe())
+            .and_then(|e| e.file_stem())
+            .is_some_and(|s| s.eq_ignore_ascii_case("hyprspace"))
+    };
+    let dir = hooks_dir();
+    for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+        let name = entry.file_name();
+        let owner = name
+            .to_str()
+            .and_then(|n| n.strip_suffix(".json"))
+            .and_then(session_owner);
+        if owner.is_some_and(|o| !running(o)) {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
 
 fn helper_owner(cmd: &[OsString], exe: &Path) -> Option<u32> {
@@ -261,13 +279,11 @@ fn helper_owner(cmd: &[OsString], exe: &Path) -> Option<u32> {
     if !matches!(sub.to_str()?, "agent-hook" | "status-line") || !same_file(Path::new(bin), exe) {
         return None;
     }
-    session
-        .to_str()?
-        .strip_prefix("hs")?
-        .split('-')
-        .next()?
-        .parse()
-        .ok()
+    session_owner(session.to_str()?)
+}
+
+fn session_owner(session: &str) -> Option<u32> {
+    session.strip_prefix("hs")?.split('-').next()?.parse().ok()
 }
 
 fn same_file(a: &Path, b: &Path) -> bool {
@@ -394,6 +410,8 @@ mod tests {
         assert_eq!(owner(&[bin, "agent-hook", "5", "hs7-1"]), Some(7));
         assert_eq!(owner(&[bin]), None);
         assert_eq!(owner(&[bin, "status-line", "5", "x1"]), None);
+        assert_eq!(session_owner("hs42744-6"), Some(42744));
+        assert_eq!(session_owner("d50a6e48-fab8-41aa-b6e7-fa516ea9f328"), None);
         assert_eq!(
             owner(&[r"C:\Other\hyprspace.exe", "agent-hook", "5", "hs7-1"]),
             None

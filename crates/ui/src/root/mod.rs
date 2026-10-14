@@ -133,7 +133,7 @@ pub struct Root {
     /// message sent to it brings it back to the list.
     pub(crate) peek: Option<u64>,
     /// An image shown over the whole window, from a Ctrl+click on it in a terminal.
-    pub(crate) lightbox: Option<(Entity<crate::viewer::lightbox::Lightbox>, Subscription)>,
+    pub(crate) lightbox: Option<(gpui::AnyView, Subscription)>,
     /// While a row is dragged over the list: the row under the pointer, and whether the dragged
     /// one would land below it (the pointer on its lower half) rather than above.
     pub(crate) drop_at: Option<(u64, bool)>,
@@ -679,7 +679,7 @@ impl Root {
             ComposerEvent::Machine(machine) => self.pick_machine(machine.clone(), window, cx),
             ComposerEvent::Space(space) => self.compose(Some(*space), window, cx),
             ComposerEvent::OtherFolder => self.other_folder(window, cx),
-            ComposerEvent::ShowImage(path) => self.show_image(path.clone(), cx),
+            ComposerEvent::ShowMedia(path) => self.show_media(path.clone(), cx),
         }
     }
 

@@ -41,7 +41,7 @@ pub enum TranscriptEvent {
     Queue(Vec<Prompt>),
     Limited(Option<u64>),
     ResumeAt(Option<u64>),
-    ShowImage(PathBuf),
+    ShowMedia(PathBuf),
     Commands(hyprspace_proto::Agent, Vec<String>),
 }
 

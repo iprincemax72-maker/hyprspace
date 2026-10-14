@@ -7,6 +7,8 @@ mod code;
 mod diff;
 mod edit;
 pub(crate) mod lightbox;
+mod pan;
+pub(crate) mod video;
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;

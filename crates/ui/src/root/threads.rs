@@ -361,11 +361,11 @@ impl Root {
                 let v = cx.new(|cx| TerminalView::new(session, client, cwd, run, prompt, cx));
                 let local = remote.is_none();
                 let sub = cx.subscribe(&v, move |root, _, e: &TerminalEvent, cx| match e {
-                    // an image opens over the window, anything else in the viewer
+                    // an image or a video opens over the window, anything else in the viewer
                     TerminalEvent::OpenFile {
                         path, line: None, ..
-                    } if local && crate::attach::is_image(path) => {
-                        root.show_image(path.clone(), cx)
+                    } if local && crate::attach::previews(path) => {
+                        root.show_media(path.clone(), cx)
                     }
                     TerminalEvent::OpenFile { path, line, col } => {
                         root.open_file(path.clone(), *line, *col, cx)
@@ -457,7 +457,7 @@ impl Root {
                     });
                     self.ask_host(thread, |thread| Ask::Permission { thread, permission });
                 }
-                TranscriptEvent::ShowImage(path) => self.show_image(path.clone(), cx),
+                TranscriptEvent::ShowMedia(path) => self.show_media(path.clone(), cx),
                 _ => {}
             }
             cx.notify();
@@ -531,7 +531,7 @@ impl Root {
                 }
                 self.save();
             }
-            TranscriptEvent::ShowImage(path) => self.show_image(path.clone(), cx),
+            TranscriptEvent::ShowMedia(path) => self.show_media(path.clone(), cx),
             TranscriptEvent::Commands(agent, names) => {
                 if self.state.commands.get(agent.cli()) != Some(names) {
                     self.state
@@ -650,14 +650,31 @@ impl Root {
         Some(thread.id)
     }
 
-    /// Shows an image over the whole window, zoomable and movable, until it is closed.
-    pub(crate) fn show_image(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        let lightbox = cx.new(|cx| crate::viewer::lightbox::Lightbox::new(path, cx));
-        let sub = cx.subscribe(&lightbox, |r, _, _: &crate::viewer::lightbox::Close, cx| {
-            r.lightbox = None;
-            cx.notify();
-        });
-        self.lightbox = Some((lightbox, sub));
+    /// Shows an image or a video over the whole window until it is closed.
+    pub(crate) fn show_media(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        use crate::viewer::video::{Video, VideoEvent};
+        if crate::attach::is_video(&path) {
+            let video = cx.new(|cx| Video::new(path, cx));
+            let sub = cx.subscribe(&video, |r, _, e: &VideoEvent, cx| {
+                if let VideoEvent::OpenOutside(path) = e {
+                    r.client.send(Command::OpenFile {
+                        path: path.clone(),
+                        line: None,
+                        col: None,
+                    });
+                }
+                r.lightbox = None;
+                cx.notify();
+            });
+            self.lightbox = Some((video.into(), sub));
+        } else {
+            let lightbox = cx.new(|cx| crate::viewer::lightbox::Lightbox::new(path, cx));
+            let sub = cx.subscribe(&lightbox, |r, _, _: &crate::viewer::lightbox::Close, cx| {
+                r.lightbox = None;
+                cx.notify();
+            });
+            self.lightbox = Some((lightbox.into(), sub));
+        }
         cx.notify();
     }
 

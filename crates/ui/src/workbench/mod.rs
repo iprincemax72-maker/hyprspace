@@ -176,7 +176,8 @@ impl Root {
     }
 
     /// A path ctrl+clicked in a terminal, or a file picked in the dock: the viewer shows it,
-    /// at its line. Media the viewer can't draw goes to the system's app for it.
+    /// at its line. A video plays over the window, and other media the viewer can't draw goes to
+    /// the system's app for it.
     pub(crate) fn open_path(
         &mut self,
         path: PathBuf,
@@ -186,8 +187,13 @@ impl Root {
         cx: &mut Context<Self>,
     ) {
         if crate::viewer::is_media(&path) {
-            let remote = self.current_space().and_then(|s| self.machine_of(s));
-            if remote.is_none() {
+            let local = self
+                .current_space()
+                .and_then(|s| self.machine_of(s))
+                .is_none();
+            if local && crate::attach::is_video(&path) {
+                self.show_media(path, cx);
+            } else if local {
                 self.client.send(Command::OpenFile { path, line, col });
             }
             return;

@@ -5,6 +5,7 @@ members = [
     "crates/harness",
     "crates/engine",
     "crates/syntax",
+    "crates/media",
     "crates/theme",
     "crates/ui",
     "crates/update",
@@ -27,6 +28,7 @@ hyprspace-proto = { path = "crates/proto" }
 hyprspace-harness = { path = "crates/harness" }
 hyprspace-engine = { path = "crates/engine" }
 hyprspace-syntax = { path = "crates/syntax" }
+hyprspace-media = { path = "crates/media" }
 hyprspace-theme = { path = "crates/theme" }
 hyprspace-ui = { path = "crates/ui" }
 hyprspace-update = { path = "crates/update" }

@@ -9,6 +9,7 @@ publish.workspace = true
 hyprspace-proto.workspace = true
 hyprspace-theme.workspace = true
 hyprspace-syntax.workspace = true
+hyprspace-media.workspace = true
 gpui.workspace = true
 alacritty_terminal.workspace = true
 # the pairing code in Settings, Phone (phone/qr.rs)

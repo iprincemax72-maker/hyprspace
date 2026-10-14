@@ -161,8 +161,8 @@ Architecture and its reasons: [docs/internals/overview.md](docs/internals/overvi
 - `crates/engine`: everything that isn't drawing: PTYs, launches, hooks, journals, saved state,
   git, usage, updates. No GPUI.
 - `crates/ui`: the GPUI app, one folder per area.
-- `crates/theme`, `crates/syntax`, `crates/update`: tokens and themes, tree-sitter highlighting,
-  the updater.
+- `crates/theme`, `crates/syntax`, `crates/media`, `crates/update`: tokens and themes, tree-sitter
+  highlighting, video through the OS's own player, the updater.
 - `mobile/`: the Android app, Kotlin and Compose. It pairs with the desktop over the phone
   bridge (`crates/engine/src/phone`). Its own Gradle project and version.
 - `website/` is the marketing site, its own project.

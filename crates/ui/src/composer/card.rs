@@ -148,7 +148,7 @@ pub fn card(c: &Composer, window: &mut Window, cx: &mut Context<Composer>) -> An
                 "composer-img",
                 &c.images,
                 cx.listener(|_, path: &PathBuf, _, cx| {
-                    cx.emit(ComposerEvent::ShowImage(path.clone()))
+                    cx.emit(ComposerEvent::ShowMedia(path.clone()))
                 }),
                 cx.listener(|c, ix: &usize, _, cx| {
                     if *ix < c.images.len() {

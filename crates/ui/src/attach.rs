@@ -3,13 +3,15 @@
 // how a dropped file's path is typed, which the terminal shares too.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use gpui::{
-    AnyElement, Context, ElementId, Image, ImageFormat, IntoElement, ObjectFit, div, img,
-    prelude::*, px,
+    AnyElement, App, Asset, Context, ElementId, Image, ImageFormat, IntoElement, ObjectFit,
+    RenderImage, Window, div, img, prelude::*, px,
 };
+pub use hyprspace_media::is_video;
 
 use crate::colors;
 
@@ -19,6 +21,76 @@ pub fn is_image(path: &Path) -> bool {
     path.extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| IMAGE_EXT.contains(&e.to_ascii_lowercase().as_str()))
+}
+
+/// An image or a video, which a click opens over the window.
+pub fn previews(path: &Path) -> bool {
+    is_image(path) || is_video(path)
+}
+
+pub fn render_image(f: hyprspace_media::Frame) -> Option<Arc<RenderImage>> {
+    let buffer = image::RgbaImage::from_raw(f.width, f.height, f.bgra)?;
+    Some(Arc::new(RenderImage::new(vec![image::Frame::new(buffer)])))
+}
+
+struct VideoThumb;
+
+impl Asset for VideoThumb {
+    type Source = PathBuf;
+    type Output = Option<Arc<RenderImage>>;
+
+    // an async fn would hold on to the App, and the cache wants a 'static future
+    #[allow(clippy::manual_async_fn)]
+    fn load(path: PathBuf, _: &mut App) -> impl Future<Output = Self::Output> + Send + 'static {
+        async move { hyprspace_media::thumbnail(&path, (480, 480)).and_then(render_image) }
+    }
+}
+
+fn video_thumb(path: &Path, size: f32) -> AnyElement {
+    let source = path.to_path_buf();
+    div()
+        .relative()
+        .size(px(size))
+        .rounded_md()
+        .overflow_hidden()
+        .bg(colors::ink(0.08))
+        .border_1()
+        .border_color(colors::border2())
+        .child(
+            img(move |window: &mut Window, cx: &mut App| {
+                window
+                    .use_asset::<VideoThumb>(&source, cx)
+                    .flatten()
+                    .map(Ok)
+            })
+            .size_full()
+            .object_fit(ObjectFit::Cover),
+        )
+        .child(
+            div()
+                .absolute()
+                .inset_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(
+                    div()
+                        .size(px((size * 0.3).clamp(18., 34.)))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_full()
+                        .bg(colors::surface3())
+                        .border_1()
+                        .border_color(colors::border2())
+                        .child(crate::assets::icon(
+                            "play",
+                            (size * 0.13).clamp(9., 15.),
+                            colors::text1(),
+                        )),
+                ),
+        )
+        .into_any_element()
 }
 
 /// What gets typed for a file: its path, quoted when it holds a space (Windows profile folders
@@ -108,6 +180,9 @@ fn to_png(bmp: &[u8]) -> std::io::Result<Vec<u8>> {
 
 /// A thumbnail of an attached image, or a tile with the name of any other file.
 pub fn thumb(path: &Path, size: f32) -> AnyElement {
+    if is_video(path) {
+        return video_thumb(path, size);
+    }
     if is_image(path) {
         return img(path.to_path_buf())
             .size(px(size))
@@ -183,7 +258,7 @@ pub fn tray(
             let preview = div()
                 .id(ElementId::Name(format!("{id}-{ix}").into()))
                 .child(thumb(path, 56.))
-                .when(is_image(path), |d| {
+                .when(previews(path), |d| {
                     d.cursor_pointer()
                         .on_click(move |_, w, cx| open(&shown, w, cx))
                 });

@@ -621,13 +621,21 @@ fn item(
                         })
                     })
                     .when(!images.is_empty(), |d| {
-                        d.child(
-                            div()
-                                .flex()
-                                .flex_wrap()
-                                .gap_2()
-                                .children(images.iter().map(|p| attach::thumb(p, 120.))),
-                        )
+                        d.child(div().flex().flex_wrap().gap_2().children(
+                            images.iter().enumerate().map(|(k, p)| {
+                                let path = p.clone();
+                                div()
+                                    .id(SharedString::from(format!("sent-img-{ix}-{k}")))
+                                    .child(attach::thumb(p, 120.))
+                                    .when(attach::previews(p) && p.exists(), |d| {
+                                        d.cursor_pointer().on_click(cx.listener(
+                                            move |_, _: &ClickEvent, _, cx| {
+                                                cx.emit(TranscriptEvent::ShowMedia(path.clone()))
+                                            },
+                                        ))
+                                    })
+                            }),
+                        ))
                     }),
             )
             .when(!text.is_empty(), |d| d.child(hover_copy(ix, text)))
@@ -1140,7 +1148,7 @@ fn composer(
                 "thread-img",
                 &v.images,
                 cx.listener(|_, path: &PathBuf, _, cx| {
-                    cx.emit(TranscriptEvent::ShowImage(path.clone()))
+                    cx.emit(TranscriptEvent::ShowMedia(path.clone()))
                 }),
                 cx.listener(|v, ix: &usize, _, cx| {
                     if *ix < v.images.len() {

@@ -97,6 +97,10 @@ const FILES: &[(&str, &[u8])] = files!(
     // updates, and the logo's three faces (Logo.tsx), each tinted on its own
     "icons/download.svg",
     "icons/circle-play.svg",
+    "icons/play.svg",
+    "icons/pause.svg",
+    "icons/volume-2.svg",
+    "icons/volume-x.svg",
     "logo/top.svg",
     "logo/left.svg",
     "logo/right.svg",

@@ -63,7 +63,7 @@ pub enum ComposerEvent {
     Machine(Option<String>),
     Space(u64),
     OtherFolder,
-    ShowImage(PathBuf),
+    ShowMedia(PathBuf),
 }
 
 #[derive(Clone, Copy)]

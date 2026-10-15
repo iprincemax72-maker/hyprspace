@@ -6,11 +6,13 @@
 
 mod bar;
 mod card;
+mod drawer;
 mod frame;
 mod header;
 
 pub use header::{PaneDrag, short};
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -24,12 +26,13 @@ use crate::dock::{Dock, DockEvent};
 use crate::root::{Root, Screen};
 use crate::viewer::{Viewer, ViewerEvent};
 
-actions!(hyprspace, [ToggleDock, ToggleSidebar]);
+actions!(hyprspace, [ToggleDock, ToggleSidebar, ToggleTerminal]);
 
 pub fn bind_keys(cx: &mut gpui::App) {
     cx.bind_keys([
         KeyBinding::new("secondary-shift-g", ToggleDock, None),
         KeyBinding::new("secondary-shift-b", ToggleSidebar, None),
+        KeyBinding::new("ctrl-`", ToggleTerminal, None),
     ]);
 }
 
@@ -63,6 +66,9 @@ pub struct Work {
     dock_sync: Option<DockSync>,
     /// The dock's slide (`crate::slide`).
     pub(crate) dock_flips: crate::slide::Flips,
+    pub(crate) drawers: HashMap<u64, drawer::Drawer>,
+    pub(crate) drawer_height: f32,
+    pub(crate) compose: Option<u64>,
 }
 
 /// The folder the dock follows, the computer it is on, whether the dock is out, and the file the
@@ -93,6 +99,9 @@ impl Work {
             show: None,
             dock_sync: None,
             dock_flips: Default::default(),
+            drawers: HashMap::new(),
+            drawer_height: 260.,
+            compose: None,
         }
     }
 }

@@ -123,6 +123,15 @@ pub(crate) fn answer_line(request_id: &str, input: Value, rules: Value, answer: 
     control_response(request_id, response)
 }
 
+pub(crate) fn control_line(request_id: &str, request: Value) -> String {
+    json!({
+        "type": "control_request",
+        "request_id": request_id,
+        "request": request,
+    })
+    .to_string()
+}
+
 pub(crate) fn interrupt_line(request_id: &str) -> String {
     json!({
         "type": "control_request",

@@ -39,6 +39,15 @@ pub struct Launch {
     pub resume: Option<String>,
     #[serde(default)]
     pub fast: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rewind: Option<Rewind>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Rewind {
+    pub text: String,
+    pub nth: usize,
 }
 
 impl Launch {
@@ -51,6 +60,7 @@ impl Launch {
             permission: Permission::default(),
             resume: None,
             fast: false,
+            rewind: None,
         }
     }
 }

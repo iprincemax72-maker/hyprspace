@@ -181,6 +181,28 @@ async fn approvals_wait_for_the_user() {
 }
 
 #[tokio::test]
+async fn questions_and_plans_read_like_claudes() {
+    let dir = tempfile::tempdir().unwrap();
+    let (session, mut events) = start(dir.path());
+    session.send(Prompt::text("ask"));
+    let asked = events
+        .until(|e| matches!(e, RunEvent::Approval { .. }))
+        .await;
+    assert!(asked.iter().any(|e| matches!(e,
+        RunEvent::Tool { tool: Tool::Other { name, .. }, .. } if name == "TodoWrite")));
+    let Some(RunEvent::Approval { request, tool, .. }) = asked.last() else {
+        panic!()
+    };
+    assert!(matches!(tool, Tool::Other { name, .. } if name == "AskUserQuestion"));
+    session.answer(
+        request.clone(),
+        Answer::Allow,
+        vec![("Which db?".into(), "sqlite".into())],
+    );
+    assert_eq!(text(&events.run().await), "picked sqlite");
+}
+
+#[tokio::test]
 async fn a_prompt_mid_turn_steers_it() {
     let dir = tempfile::tempdir().unwrap();
     let (session, mut events) = start(dir.path());

@@ -14,7 +14,7 @@ use gpui::{
 };
 use hyprspace_proto::{RunStatus, Tool};
 
-use super::model::Item;
+use super::model::{self, Item};
 use super::rows::{self, Row};
 use super::{TranscriptEvent, TranscriptView, tool};
 use crate::assets::{icon, mark};
@@ -36,6 +36,15 @@ pub fn view(
     window: &mut Window,
     cx: &mut Context<TranscriptView>,
 ) -> AnyElement {
+    if let Some(effort) = v.want_menu.take()
+        && let Some(spec) = v.model_spec()
+    {
+        v.menu = Some(if effort {
+            ModelMenu::open_effort(&spec, window, cx)
+        } else {
+            ModelMenu::open(&spec, window, cx)
+        });
+    }
     if v._focus.is_empty() {
         let input = v.input.focus_handle(cx);
         v._focus = vec![
@@ -54,9 +63,12 @@ pub fn view(
         .reveal
         .as_mut()
         .and_then(|r| match v.model.items.get(r.ix) {
-            Some(Item::Text { source, .. }) => r
-                .step(source, window, cx)
-                .map(|end| (r.ix, markdown::parse(&source[..end]))),
+            Some(Item::Text { source, .. }) => r.step(source, window, cx).map(|end| {
+                (
+                    r.ix,
+                    model::reply(&source[..end], v.model.after_command(r.ix)),
+                )
+            }),
             _ => None,
         });
     let now = Instant::now();
@@ -642,7 +654,28 @@ fn item(
                         ))
                     }),
             )
-            .when(!text.is_empty(), |d| d.child(hover_copy(ix, text)))
+            .child(
+                div()
+                    .flex()
+                    .gap(px(2.))
+                    .opacity(0.)
+                    .group_hover(SharedString::from(format!("msg-{ix}")), |s| s.opacity(1.))
+                    .when(!text.is_empty(), |d| {
+                        d.child(widgets::CopyButton::new(
+                            format!("copy-msg-{ix}"),
+                            text.to_string(),
+                        ))
+                    })
+                    .when(!*steer && v.can_rewind(), |d| {
+                        d.child(
+                            widgets::icon_button(("rewind", ix), "pencil", 24.)
+                                .tooltip(widgets::tip("Edit from here"))
+                                .on_click(
+                                    cx.listener(move |v, _: &ClickEvent, _, cx| v.rewind(ix, cx)),
+                                ),
+                        )
+                    }),
+            )
             .into_any_element(),
         Item::Text { blocks, source } => match v
             .partial
@@ -1066,7 +1099,7 @@ fn composer(
     let agent = v.launch.agent;
     let (brand, _) = colors::brand(agent);
     let focused = v.input.focus_handle(cx).is_focused(window);
-    // a quiet chip that lifts on hover; while a run is live the model is fixed, so it only shows
+    // a quiet chip that lifts on hover
     let chip = |id: &'static str| {
         div()
             .id(id)
@@ -1078,9 +1111,8 @@ fn composer(
             .min_w_0()
             .rounded(px(8.))
             .text_size(px(12.5))
-            .when(!running, |d| {
-                d.cursor_pointer().hover(|s| s.bg(colors::ink(0.06)))
-            })
+            .cursor_pointer()
+            .hover(|s| s.bg(colors::ink(0.06)))
     };
     let model_chip = model_menu::anchored_chip(
         &v.anchor,
@@ -1093,14 +1125,12 @@ fn composer(
                     .text_color(colors::text1())
                     .child(v.model_label()),
             )
-            .when(!running, |d| {
-                d.on_click(cx.listener(|v, _: &ClickEvent, window, cx| {
-                    if let Some(spec) = v.model_spec() {
-                        v.menu = Some(ModelMenu::open(&spec, window, cx));
-                        cx.notify();
-                    }
-                }))
-            }),
+            .on_click(cx.listener(|v, _: &ClickEvent, window, cx| {
+                if let Some(spec) = v.model_spec() {
+                    v.menu = Some(ModelMenu::open(&spec, window, cx));
+                    cx.notify();
+                }
+            })),
     );
     let effort_chip = v
         .model_spec()
@@ -1111,14 +1141,12 @@ fn composer(
                 chip("thread-effort")
                     .text_color(colors::text3())
                     .child(model_menu::effort_chip_label(&spec))
-                    .when(!running, |d| {
-                        d.on_click(cx.listener(|v, _: &ClickEvent, window, cx| {
-                            if let Some(spec) = v.model_spec() {
-                                v.menu = Some(ModelMenu::open_effort(&spec, window, cx));
-                                cx.notify();
-                            }
-                        }))
-                    }),
+                    .on_click(cx.listener(|v, _: &ClickEvent, window, cx| {
+                        if let Some(spec) = v.model_spec() {
+                            v.menu = Some(ModelMenu::open_effort(&spec, window, cx));
+                            cx.notify();
+                        }
+                    })),
             )
         });
     // a live run with nothing typed can only be stopped; typed text steers it
@@ -1194,7 +1222,7 @@ fn composer(
                                 .gap(px(4.))
                                 .child(model_chip)
                                 .children(effort_chip)
-                                .child(permission_chip(v, running, cx)),
+                                .child(permission_chip(v, cx)),
                         )
                         .child(
                             widgets::icon_button("thread-attach", "paperclip", 28.).on_click(
@@ -1406,11 +1434,7 @@ fn context((used, window): (u64, u64)) -> AnyElement {
         .into_any_element()
 }
 
-fn permission_chip(
-    v: &TranscriptView,
-    running: bool,
-    cx: &mut Context<TranscriptView>,
-) -> AnyElement {
+fn permission_chip(v: &TranscriptView, cx: &mut Context<TranscriptView>) -> AnyElement {
     use hyprspace_proto::Permission;
     let p = v.launch.permission;
     let glyph = match p {
@@ -1429,15 +1453,13 @@ fn permission_chip(
         .rounded(px(8.))
         .text_size(px(12.5))
         .text_color(colors::text3())
-        .when(!running, |d| {
-            d.cursor_pointer()
-                .hover(|s| s.bg(colors::ink(0.06)))
-                .on_click(cx.listener(|v, e: &ClickEvent, _, cx| {
-                    let at = e.position();
-                    v.perm_menu = Some(gpui::point(at.x - px(40.), at.y));
-                    cx.notify();
-                }))
-        })
+        .cursor_pointer()
+        .hover(|s| s.bg(colors::ink(0.06)))
+        .on_click(cx.listener(|v, e: &ClickEvent, _, cx| {
+            let at = e.position();
+            v.perm_menu = Some(gpui::point(at.x - px(40.), at.y));
+            cx.notify();
+        }))
         .child(icon(glyph, 12., colors::text3()))
         .child(crate::composer::pickers::permission_label(p))
         .into_any_element()

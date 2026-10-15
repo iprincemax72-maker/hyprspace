@@ -414,14 +414,22 @@ impl Root {
             Event::Failed { id, message } => match self.view_of(id) {
                 Some(View::Structured(v)) => v.update(cx, |v, cx| v.fail(message, cx)),
                 Some(View::Terminal(v)) => v.update(cx, |v, cx| v.fail(message, cx)),
-                None => {}
+                None => {
+                    if let Some(v) = self.drawer_terminal(id) {
+                        v.update(cx, |v, cx| v.fail(message, cx));
+                    }
+                }
             },
             Event::TerminalOutput { id, bytes } => {
-                if let Some(View::Terminal(v)) = self.view_of(id) {
+                if let Some(v) = self.terminal_of(id) {
                     v.update(cx, |v, cx| v.output(&bytes, cx));
                 }
             }
             Event::TerminalExit { id, code } => {
+                if self.drawer_terminal(id).is_some() {
+                    self.drawer_exited(id, cx);
+                    return;
+                }
                 if let Some(View::Terminal(v)) = self.view_of(id) {
                     v.update(cx, |v, cx| v.exit(code, cx));
                 }
@@ -434,7 +442,7 @@ impl Root {
                 }
             }
             Event::ImageFound { id, n, path } => {
-                if let Some(View::Terminal(v)) = self.view_of(id) {
+                if let Some(v) = self.terminal_of(id) {
                     v.update(cx, |v, cx| v.image_found(n, path, cx));
                 }
             }
@@ -577,6 +585,13 @@ impl Root {
     /// dropped.
     fn view_of(&self, id: SessionId) -> Option<&View> {
         self.sessions.get(&id).and_then(|t| self.views.get(t))
+    }
+
+    fn terminal_of(&self, id: SessionId) -> Option<&Entity<TerminalView>> {
+        match self.view_of(id) {
+            Some(View::Terminal(v)) => Some(v),
+            _ => self.drawer_terminal(id),
+        }
     }
 
     fn loaded(&mut self, state: AppState, window: &mut Window, cx: &mut Context<Self>) {

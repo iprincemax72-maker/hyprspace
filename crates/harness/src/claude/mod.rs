@@ -94,10 +94,8 @@ fn args(launch: &Launch) -> Vec<String> {
     .map(String::from)
     .into();
     match launch.permission {
-        Permission::Plan => out.extend(["--permission-mode".into(), "plan".into()]),
-        Permission::Ask => out.extend(["--permission-mode".into(), "default".into()]),
-        Permission::Auto => out.extend(["--permission-mode".into(), "acceptEdits".into()]),
         Permission::Bypass => out.push("--dangerously-skip-permissions".into()),
+        p => out.extend(["--permission-mode".into(), mode(p).into()]),
     }
     if let Some(model) = &launch.model {
         out.extend(["--model".into(), model.clone()]);
@@ -116,6 +114,15 @@ fn args(launch: &Launch) -> Vec<String> {
     out
 }
 
+fn mode(permission: Permission) -> &'static str {
+    match permission {
+        Permission::Plan => "plan",
+        Permission::Ask => "default",
+        Permission::Auto => "acceptEdits",
+        Permission::Bypass => "bypassPermissions",
+    }
+}
+
 // a file, not inline JSON: an npm shim runs through cmd /c, which can mangle the quotes
 fn fast_settings() -> Option<String> {
     let path = std::env::temp_dir().join("hyprspace-fast-mode.json");
@@ -131,13 +138,34 @@ impl Harness for Claude {
         Agent::Claude
     }
 
-    fn start(&self, launch: Launch, emit: Emit) -> io::Result<Session> {
-        let origin = launch.resume.as_deref().and_then(|thread| {
-            let config = self.config.clone().or_else(resume::config_dir)?;
-            resume::origin(&config, thread)
-        });
+    fn start(&self, mut launch: Launch, mut emit: Emit) -> io::Result<Session> {
+        let config = self.config.clone().or_else(resume::config_dir);
+        let origin = launch
+            .resume
+            .as_deref()
+            .zip(config.as_deref())
+            .and_then(|(thread, config)| resume::origin(config, thread));
         let cwd = origin.unwrap_or_else(|| launch.cwd.clone());
+        let mut keep = None;
+        if let Some(rewind) = launch.rewind.take() {
+            let point = launch
+                .resume
+                .as_deref()
+                .zip(config.as_deref())
+                .and_then(|(thread, config)| resume::rewind_point(config, thread, &rewind));
+            match point {
+                Some(Some(at)) => keep = Some(at),
+                Some(None) => launch.resume = None,
+                None => (emit)(RunEvent::Error {
+                    message: "That message wasn't found in Claude's saved conversation, so nothing was rewound."
+                        .into(),
+                }),
+            }
+        }
         let mut args = args(&launch);
+        if let Some(at) = keep {
+            args.extend(["--resume-session-at".into(), at, "--fork-session".into()]);
+        }
         if let Some(path) = self.mcp.as_ref().and_then(mcp_config) {
             args.extend(["--mcp-config".into(), path.to_string_lossy().into_owned()]);
         }
@@ -149,6 +177,8 @@ impl Harness for Claude {
             stderr: proc.stderr,
             emit,
             cwd,
+            model: launch.model.clone(),
+            permission: launch.permission,
             patience: self.patience,
             started: false,
             run: None,
@@ -218,6 +248,8 @@ struct Actor {
     context: u64,
     /// The main model's context window, from the latest `result`.
     window: Option<u64>,
+    model: Option<String>,
+    permission: Permission,
 }
 
 type Lines = tokio::io::Lines<BufReader<tokio::process::ChildStdout>>;
@@ -290,6 +322,25 @@ impl Actor {
                 run.interrupted = true;
                 run.kill_at = Some(Instant::now() + self.patience);
                 self.write(wire::interrupt_line("hs-interrupt")).await;
+            }
+            Input::Configure(launch) => {
+                if launch.model != self.model {
+                    let request = match &launch.model {
+                        Some(model) => json!({ "subtype": "set_model", "model": model }),
+                        None => json!({ "subtype": "set_model" }),
+                    };
+                    self.model = launch.model;
+                    self.write(wire::control_line("hs-model", request)).await;
+                }
+                if launch.permission != self.permission {
+                    self.permission = launch.permission;
+                    let request = json!({
+                        "subtype": "set_permission_mode",
+                        "mode": mode(launch.permission),
+                    });
+                    self.write(wire::control_line("hs-permission", request))
+                        .await;
+                }
             }
             Input::Answer {
                 request,

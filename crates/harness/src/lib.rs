@@ -64,6 +64,7 @@ pub(crate) enum Input {
         answer: Answer,
         answers: Vec<(String, String)>,
     },
+    Configure(Launch),
 }
 
 impl Session {
@@ -89,6 +90,10 @@ impl Session {
             answer,
             answers,
         });
+    }
+
+    pub fn configure(&self, launch: Launch) {
+        let _ = self.tx.send(Input::Configure(launch));
     }
 
     /// True once the CLI is gone and the last event was sent.

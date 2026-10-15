@@ -22,6 +22,7 @@ pub enum Cmd {
     Thread(u64),
     ToggleDock,
     ToggleSidebar,
+    ToggleTerminal,
     GitPanel,
     Scheme(Scheme),
     Theme(&'static str),
@@ -98,6 +99,17 @@ impl Root {
             )
             .hint("Ctrl+Shift+G"),
         );
+        if self.structured_on_screen().is_some() {
+            out.push(
+                Item::new(
+                    "View",
+                    "Show or hide the terminal",
+                    Glyph::Icon("square-terminal"),
+                    Cmd::ToggleTerminal,
+                )
+                .hint("Ctrl+`"),
+            );
+        }
         out.push(Item::new(
             "View",
             "Open the git panel",
@@ -268,6 +280,9 @@ impl Root {
             Cmd::Thread(id) => self.open_thread(id, window, cx),
             Cmd::ToggleDock => self.toggle_dock(&crate::workbench::ToggleDock, window, cx),
             Cmd::ToggleSidebar => self.toggle_sidebar(&crate::workbench::ToggleSidebar, window, cx),
+            Cmd::ToggleTerminal => {
+                self.toggle_terminal(&crate::workbench::ToggleTerminal, window, cx)
+            }
             Cmd::GitPanel => {
                 self.state.dock.open = true;
                 self.state.dock.tab = DockTab::Git;

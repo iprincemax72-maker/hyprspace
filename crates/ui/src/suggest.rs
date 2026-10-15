@@ -41,6 +41,14 @@ struct Known {
 
 impl Global for Known {}
 
+pub fn commands_of(agent: Agent, cx: &mut App) -> Vec<String> {
+    cx.default_global::<Known>()
+        .commands
+        .get(&agent)
+        .cloned()
+        .unwrap_or_default()
+}
+
 pub fn set_commands(agent: Agent, names: Vec<String>, cx: &mut App) {
     cx.default_global::<Known>().commands.insert(agent, names);
 }
@@ -118,9 +126,17 @@ impl Open {
 pub struct Suggest {
     pub open: Option<Open>,
     muted: Option<usize>,
+    own: Vec<Item>,
 }
 
 impl Suggest {
+    pub fn with(own: Vec<Item>) -> Self {
+        Self {
+            own,
+            ..Self::default()
+        }
+    }
+
     pub fn refresh(
         &mut self,
         input: &Entity<TextInput>,
@@ -133,7 +149,15 @@ impl Suggest {
             let i = input.read(cx);
             (i.text().to_string(), i.cursor_offset())
         };
-        let found = detect(&text, cursor, agent, cwd, self.muted, client, cx);
+        let found = detect(
+            &text,
+            cursor,
+            agent,
+            cwd,
+            (&self.own, self.muted),
+            client,
+            cx,
+        );
         if found.is_none() {
             self.muted = None;
         }
@@ -177,7 +201,7 @@ fn detect(
     cursor: usize,
     agent: Agent,
     cwd: &Path,
-    muted: Option<usize>,
+    (own, muted): (&[Item], Option<usize>),
     client: &Client,
     cx: &mut App,
 ) -> Option<Open> {
@@ -189,7 +213,7 @@ fn detect(
             return None;
         }
         want(client, cwd, false, cx);
-        let items = rank(&commands(agent, cwd, cx), q);
+        let items = rank(&commands(agent, cwd, own, cx), q);
         return (!items.is_empty()).then_some(Open {
             kind: Kind::Command,
             range: 0..cursor,
@@ -229,9 +253,10 @@ fn detect(
     })
 }
 
-fn commands(agent: Agent, cwd: &Path, cx: &mut App) -> Vec<Item> {
+fn commands(agent: Agent, cwd: &Path, own: &[Item], cx: &mut App) -> Vec<Item> {
     let known = cx.default_global::<Known>();
-    let mut items: Vec<Item> = known
+    let mut items: Vec<Item> = own.to_vec();
+    let skills = known
         .skills
         .get(cwd)
         .map(|(_, s)| s.as_slice())
@@ -246,7 +271,12 @@ fn commands(agent: Agent, cwd: &Path, cx: &mut App) -> Vec<Item> {
                 format!("{}\n\n", s.body.trim())
             },
         })
-        .collect();
+        .collect::<Vec<_>>();
+    for skill in skills {
+        if !items.iter().any(|i| i.label == skill.label) {
+            items.push(skill);
+        }
+    }
     let before_start: &[&str] = if agent == Agent::Claude {
         &["compact"]
     } else {

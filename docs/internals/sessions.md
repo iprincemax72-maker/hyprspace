@@ -8,6 +8,7 @@ Harness::start(Launch, Emit) -> io::Result<Session>
 Session::send(Prompt)            // starts a run, or steers the live one
 Session::interrupt()             // ends the live run as Interrupted, the session stays open
 Session::answer(request, Answer) // Allow, AllowAlways or Deny for a RunEvent::Approval
+Session::configure(Launch)       // a new model, effort or permission, applied in place
 drop(session)                    // kills the CLI
 ```
 
@@ -33,7 +34,10 @@ how Claude is driven.
 - **Codex** runs its app-server and talks JSON-RPC over stdio (`thread/start`, `turn/start`,
   `turn/steer`, `turn/interrupt`). Command and file-change approval requests become approvals. A
   file-change request names only its item, so the harness keeps tool items in flight to attach the
-  edits. Any other server request gets a JSON-RPC error back so the turn never hangs.
+  edits. `item/tool/requestUserInput` becomes an `AskUserQuestion` approval and
+  `turn/plan/updated` a `TodoWrite` call, so Codex gets Claude's question card and task list. A
+  question with no options gets one that says the answer comes in a message. Any other server
+  request gets a JSON-RPC error back so the turn never hangs.
 
 ## Rules that aren't obvious from the code
 
@@ -52,6 +56,17 @@ how Claude is driven.
   it started in, so the harness reads the `cwd` recorded in `~/.claude/projects/*/<id>.jsonl` (or
   under `CLAUDE_CONFIG_DIR`) and spawns there, whatever the caller passed. Codex threads carry
   their own folder; one that's gone fails the session instead of quietly starting a new one.
+- **A rewind happens at the next start.** "Edit from here" puts a `Rewind` (the prompt's text and
+  how many earlier prompts said the same) on the thread's `Launch`, closes the CLI and trims the
+  journal (`Command::TrimJournal`). Claude then resumes with its hidden `--resume-session-at`, at
+  the `parentUuid` of that prompt in the session file, plus `--fork-session`, so the old file stays
+  whole. Codex resumes, finds the prompt's turn with `thread/turns/list` and calls `thread/revert`.
+  The prompt is found by text, not by an id in the journal, because the phone reads journal
+  entries and an id there would change its wire.
+- **Changes apply in place when the CLI allows it.** Claude takes a model or permission change as
+  a `set_model` or `set_permission_mode` control request. Bypass, a 1M window, fast mode and effort
+  still restart the CLI, because they are launch flags. Codex sends `model`, `approvalPolicy` and
+  `sandboxPolicy` on the next `turn/start` once they differ from what the thread opened with.
 - **Subagents report under their call.** Claude frames with a `parent_tool_use_id` become
   `SubagentTool`, `SubagentToolDone` and `SubagentText` keyed by the Agent call, never folded into
   the main reply. A background subagent can finish after the run; the CLI then takes a turn of its

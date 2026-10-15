@@ -183,6 +183,9 @@ fn menu_line(
 impl Render for Root {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.look_for_hosts();
+        if let Some(space) = self.work.compose.take() {
+            self.compose(Some(space), window, cx);
+        }
         let main: AnyElement = if !self.loaded {
             div().into_any_element()
         } else {

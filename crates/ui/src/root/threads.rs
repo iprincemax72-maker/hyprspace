@@ -458,12 +458,18 @@ impl Root {
                     self.ask_host(thread, |thread| Ask::Permission { thread, permission });
                 }
                 TranscriptEvent::ShowMedia(path) => self.show_media(path.clone(), cx),
+                TranscriptEvent::NewThread => {
+                    self.work.compose = self.state.thread(thread).map(|(s, _)| s.id);
+                }
                 _ => {}
             }
             cx.notify();
             return;
         }
         match e {
+            TranscriptEvent::NewThread => {
+                self.work.compose = self.state.thread(thread).map(|(s, _)| s.id);
+            }
             TranscriptEvent::Status(s) => {
                 self.set_status(thread, *s);
                 self.delegation_moved(thread, *s, cx);
@@ -477,6 +483,7 @@ impl Root {
                 {
                     launch.resume = Some(t.clone());
                     launch.cwd = cwd.clone();
+                    launch.rewind = None;
                 }
                 self.save();
             }
@@ -710,6 +717,7 @@ impl Root {
 
     /// Kills a thread's session and forgets its view.
     pub(crate) fn drop_view(&mut self, thread: u64) {
+        self.close_drawer(thread);
         if self.views.remove(&thread).is_some() {
             let ids: Vec<SessionId> = self
                 .sessions

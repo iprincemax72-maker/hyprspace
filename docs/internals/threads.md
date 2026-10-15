@@ -12,6 +12,9 @@ thread or terminal takes the main area. There are no tiles, layouts or "open bes
   switching never rebuilds a terminal and its emulator.
 - A terminal sits in a frame with its header (agent mark, title, model tag, close back to the
   composer). A structured thread runs edge to edge, with its name in the bar above.
+- Ctrl+` opens a drawer of shells under a structured thread, one tab each (`workbench/drawer.rs`).
+  Their sessions stay out of `Root.sessions`, so their hooks, agents and exits never touch the
+  thread.
 - `proto::Grid` is gone. A state file that still has `grid` loads; serde skips the field. `Pane`
   stays: a dragged sidebar row carries one, and the viewer shows `Pane::File` and `Pane::Diff`.
 

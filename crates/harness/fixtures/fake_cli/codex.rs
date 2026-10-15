@@ -107,6 +107,8 @@ pub fn run() {
             hello_turn(&fake, &turn);
         } else if text.contains("approve") {
             approve(&fake, &turn);
+        } else if text.contains("ask") {
+            ask(&fake, &turn);
         } else if text.contains("late-steer") {
             late_steer(&mut fake, &turn);
         } else if text.contains("steer") {
@@ -229,10 +231,8 @@ fn approve(fake: &Fake, turn: &str) {
         notes.push(format!("bad decline: {a2}"));
     }
     // a request the harness has no answer for still gets an error back
-    emit(
-        json!({ "id": 102, "method": "item/tool/requestUserInput", "params": {
-        "threadId": fake.thread } }),
-    );
+    emit(json!({ "id": 102, "method": "item/tool/call", "params": {
+        "threadId": fake.thread } }));
     let a3 = read().unwrap_or_default();
     if a3["id"] != 102 || a3.get("error").is_none() {
         notes.push(format!("bad unknown-request answer: {a3}"));
@@ -243,6 +243,24 @@ fn approve(fake: &Fake, turn: &str) {
         notes.join("; ")
     };
     fake.say("m1", &said);
+    fake.complete(turn, "completed", Value::Null);
+}
+
+fn ask(fake: &Fake, turn: &str) {
+    emit(json!({ "method": "turn/plan/updated", "params": {
+        "threadId": fake.thread, "turnId": turn,
+        "plan": [{ "step": "Pick a db", "status": "inProgress" }] } }));
+    emit(
+        json!({ "id": 103, "method": "item/tool/requestUserInput", "params": {
+        "threadId": fake.thread, "turnId": turn, "itemId": "q", "isBlocking": true,
+        "questions": [{ "id": "db", "header": "Db", "question": "Which db?",
+            "options": [{ "label": "sqlite", "description": "small" }] }] } }),
+    );
+    let a = read().unwrap_or_default();
+    let picked = a["result"]["answers"]["db"]["answers"][0]
+        .as_str()
+        .unwrap_or("none");
+    fake.say("m1", &format!("picked {picked}"));
     fake.complete(turn, "completed", Value::Null);
 }
 

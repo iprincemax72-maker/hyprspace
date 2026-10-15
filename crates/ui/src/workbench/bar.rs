@@ -10,8 +10,8 @@ use gpui::{
 use hyprspace_proto::{Opener, ThreadKind};
 use hyprspace_theme::MONO;
 
-use super::ToggleDock;
 use super::header::{opener_logo, short};
+use super::{ToggleDock, ToggleTerminal};
 use crate::assets::{icon, mark};
 use crate::colors;
 use crate::root::{Action, Root};
@@ -111,6 +111,17 @@ impl Root {
             ),
             None => (None, s.name.clone(), folder.as_deref().map(short)),
         };
+        let drawer = self
+            .structured_on_screen()
+            .filter(|id| self.machines.remote(*id).is_none())
+            .map(|id| self.work.drawers.get(&id).is_some_and(|d| d.open))
+            .map(|open| {
+                bar_button("bar-terminal", "square-terminal", open)
+                    .tooltip(widgets::tip("Show or hide the terminal"))
+                    .on_click(cx.listener(|r, _: &ClickEvent, window, cx| {
+                        r.toggle_terminal(&ToggleTerminal, window, cx)
+                    }))
+            });
         // the bar is part of the title row: its empty stretch drags the window, so the controls
         // occlude it to keep their clicks
         let controls = div()
@@ -169,6 +180,7 @@ impl Root {
                     .children(open_button)
                     .child(div().w(px(1.)).h(px(16.)).mx(px(8.)).bg(colors::border2()))
                     .child(self.limits.clone())
+                    .children(drawer)
                     .child(
                         bar_button("bar-dock", "panel-right", self.state.dock.open).on_click(
                             cx.listener(|r, _: &ClickEvent, window, cx| {

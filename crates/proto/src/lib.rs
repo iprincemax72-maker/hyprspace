@@ -25,7 +25,7 @@ pub use folder::{FolderCommand, FolderEvent, Opener};
 pub use pane::Pane;
 pub use peer::{PeerCommand, PeerEvent};
 pub use phone::{PhoneCommand, PhoneEvent};
-pub use run::{Answer, Delegation, Launch, Permission, Prompt, RunEvent, RunStatus, Tool};
+pub use run::{Answer, Delegation, Launch, Permission, Prompt, Rewind, RunEvent, RunStatus, Tool};
 pub use skills::{SkillCommand, SkillEvent};
 pub use state::{AppState, Entry, SettleAfter, Snooze, Space, Thread, ThreadKind};
 pub use update::{UpdateCommand, UpdateEvent};

@@ -19,7 +19,7 @@ const DOCK_MAX: f32 = 720.;
 pub struct DockDrag;
 
 /// A clear view for drags that need nothing under the cursor.
-struct Nothing;
+pub(super) struct Nothing;
 
 impl Render for Nothing {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
@@ -53,10 +53,13 @@ impl Root {
             self.make_view(&t, None, true, cx);
         }
         let body = match self.views.get(&thread) {
-            Some(View::Structured(v)) => v
-                .clone()
-                .cached(StyleRefinement::default().size_full())
-                .into_any_element(),
+            Some(View::Structured(v)) => {
+                let chat = v
+                    .clone()
+                    .cached(StyleRefinement::default().size_full())
+                    .into_any_element();
+                self.with_drawer(thread, chat, cx)
+            }
             Some(View::Terminal(v)) => {
                 // laid out again only when it changes: output, input, a resize
                 let terminal = v.clone().cached(StyleRefinement::default().size_full());
@@ -132,6 +135,7 @@ impl Root {
             .size_full()
             .flex()
             .on_action(cx.listener(Self::toggle_dock))
+            .on_action(cx.listener(Self::toggle_terminal))
             .on_drag_move(cx.listener(|r, e: &DragMoveEvent<DockDrag>, _, cx| {
                 let x: f32 = e.event.position.x.into();
                 let right: f32 = e.bounds.right().into();

@@ -137,6 +137,28 @@ pub fn load(file: &Path) -> Vec<Entry> {
         .collect()
 }
 
+pub fn trim(file: &Path, keep: usize) {
+    let Ok(f) = File::open(file) else {
+        return;
+    };
+    let mut prompts = 0;
+    let mut kept = String::new();
+    for line in BufReader::new(f).lines().map_while(Result::ok) {
+        if let Ok(Entry::Prompt { .. }) = serde_json::from_str::<Entry>(&line) {
+            if prompts == keep {
+                break;
+            }
+            prompts += 1;
+        }
+        kept.push_str(&line);
+        kept.push('\n');
+    }
+    let tmp = file.with_extension("jsonl.tmp");
+    if std::fs::write(&tmp, kept).is_ok() {
+        let _ = std::fs::rename(&tmp, file);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use hyprspace_proto::{Answer, Prompt, RunStatus};
@@ -149,6 +171,32 @@ mod tests {
 
     fn text(s: &str) -> RunEvent {
         RunEvent::Text { text: s.into() }
+    }
+
+    #[test]
+    fn a_trim_keeps_the_prompts_before_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = path(dir.path(), "thread-2");
+        let j = Journal::open(&file);
+        for p in ["one", "two", "three"] {
+            j.record(Entry::Prompt {
+                prompt: Prompt::text(p),
+            });
+            j.record(run(text(p)));
+        }
+        drop(j);
+        trim(&file, 1);
+        assert_eq!(
+            load(&file),
+            vec![
+                Entry::Prompt {
+                    prompt: Prompt::text("one")
+                },
+                run(text("one")),
+            ]
+        );
+        trim(&file, 0);
+        assert!(load(&file).is_empty());
     }
 
     #[test]

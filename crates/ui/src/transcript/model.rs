@@ -297,6 +297,26 @@ impl Transcript {
         self.end_session();
     }
 
+    pub fn cut(&mut self, ix: usize) {
+        self.items.truncate(ix);
+        self.run = None;
+        self.last = None;
+        self.failed = false;
+        self.compacting = false;
+        self.context = None;
+    }
+
+    pub fn after_command(&self, ix: usize) -> bool {
+        self.items[..ix.min(self.items.len())]
+            .iter()
+            .rev()
+            .find_map(|i| match i {
+                Item::User { text, .. } => Some(slash(text)),
+                _ => None,
+            })
+            .unwrap_or(false)
+    }
+
     pub fn note(&mut self, text: impl Into<String>) {
         self.items.push(Item::Note(text.into()));
     }
@@ -565,10 +585,12 @@ impl Transcript {
 
     /// Parses any reply text that changed since the last paint.
     pub fn parse(&mut self) {
+        let mut command = false;
         for item in &mut self.items {
             match item {
+                Item::User { text, .. } => command = slash(text),
                 Item::Text { source, blocks } if blocks.is_none() => {
-                    *blocks = Some(markdown::parse(source));
+                    *blocks = Some(reply(source, command));
                 }
                 Item::Agent(a) if a.blocks.is_none() => {
                     a.blocks = Some(markdown::parse(a.answer()));
@@ -587,9 +609,35 @@ fn tokens(n: u64) -> String {
     }
 }
 
+fn slash(text: &str) -> bool {
+    text.trim_start()
+        .strip_prefix('/')
+        .and_then(|rest| rest.split_whitespace().next())
+        .is_some_and(|name| !name.contains('/'))
+}
+
+pub fn reply(source: &str, command: bool) -> Vec<Block> {
+    if !command {
+        return markdown::parse(source);
+    }
+    let kept: Vec<String> = source.lines().map(|l| format!("{l}  ")).collect();
+    markdown::parse(&kept.join("\n"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replies_to_slash_commands_keep_their_lines() {
+        assert!(slash("/usage") && slash(" /compact now"));
+        assert!(!slash("/usr/bin/env") && !slash("hi /usage"));
+        let mut t = Transcript::default();
+        t.prompt(&Prompt::text("/usage"));
+        t.apply(text("a: 1\nb: 2"));
+        assert!(t.after_command(t.items.len()));
+        assert_ne!(reply("a: 1\nb: 2", true), reply("a: 1\nb: 2", false));
+    }
 
     fn text(s: &str) -> RunEvent {
         RunEvent::Text { text: s.into() }

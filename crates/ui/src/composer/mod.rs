@@ -315,6 +315,7 @@ impl Composer {
             permission: self.prefs.permission,
             resume: None,
             fast,
+            rewind: None,
         })
     }
 

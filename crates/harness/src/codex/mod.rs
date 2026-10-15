@@ -13,7 +13,9 @@ use std::io;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use hyprspace_proto::{Agent, Answer, Launch, Permission, Prompt, RunEvent, RunStatus, Tool};
+use hyprspace_proto::{
+    Agent, Answer, Launch, Permission, Prompt, Rewind, RunEvent, RunStatus, Tool,
+};
 use serde_json::{Value, json};
 use tokio::process::Child;
 use tokio::sync::mpsc;
@@ -131,6 +133,7 @@ impl Harness for Codex {
         let proc = spawn(&self.program, &["app-server".to_string()], &launch.cwd)?;
         let (rpc, incoming) = Rpc::new(proc.stdin, proc.stdout);
         let (tx, rx) = mpsc::unbounded_channel();
+        let opened = (launch.model.clone(), launch.permission);
         let actor = Actor {
             child: proc.child,
             stderr: proc.stderr,
@@ -141,6 +144,7 @@ impl Harness for Codex {
             thread: String::new(),
             run: None,
             approvals: HashMap::new(),
+            opened,
             mcp: self.mcp.clone(),
             tools: HashMap::new(),
             streamed: HashSet::new(),
@@ -165,6 +169,12 @@ struct Run {
     output: u64,
 }
 
+enum Asked {
+    Approval(Value),
+    Elicit(Value),
+    Questions(Value, Vec<(String, String)>),
+}
+
 struct Actor {
     child: Child,
     stderr: Tail,
@@ -175,7 +185,8 @@ struct Actor {
     thread: String,
     run: Option<Run>,
     /// Approval requests waiting on the user, with the JSON-RPC id to answer.
-    approvals: HashMap<String, (Value, bool)>,
+    approvals: HashMap<String, Asked>,
+    opened: (Option<String>, Permission),
     mcp: Option<crate::Mcp>,
     /// Tool items in flight. A file-change approval names only the item, so its edits come
     /// from here.
@@ -251,9 +262,13 @@ impl Actor {
         });
         self.rpc.request("initialize", hello).await?;
         self.rpc.notify("initialized");
+        let rewind = self.launch.rewind.take();
         let (method, params) = thread_request(&self.launch, self.mcp.as_ref());
         let opened = self.rpc.request(method, params).await?;
         self.thread = text(&opened["thread"]["id"]);
+        if let Some(rewind) = rewind.filter(|_| method == "thread/resume") {
+            self.rewind(&rewind).await;
+        }
         let cwd = opened["cwd"].as_str().map(PathBuf::from);
         (self.emit)(RunEvent::Started {
             agent: Agent::Codex,
@@ -262,6 +277,60 @@ impl Actor {
             cwd: cwd.unwrap_or_else(|| self.launch.cwd.clone()),
         });
         Ok(())
+    }
+
+    async fn rewind(&mut self, rewind: &Rewind) {
+        let message = match self.turn_of(rewind).await {
+            Some(turn) => {
+                let params = json!({ "threadId": self.thread, "beforeTurnId": turn });
+                match self.rpc.request("thread/revert", params).await {
+                    Ok(_) => return,
+                    Err(e) => format!("Codex could not rewind the conversation: {e}"),
+                }
+            }
+            None => {
+                "That message wasn't found in Codex's saved conversation, so nothing was rewound."
+                    .into()
+            }
+        };
+        (self.emit)(RunEvent::Error { message });
+    }
+
+    async fn turn_of(&mut self, rewind: &Rewind) -> Option<String> {
+        let want = rewind.text.trim();
+        if want.is_empty() {
+            return None;
+        }
+        let mut seen = 0;
+        let mut cursor = Value::Null;
+        loop {
+            let params = json!({
+                "threadId": self.thread,
+                "cursor": cursor,
+                "limit": 100,
+                "sortDirection": "asc",
+                "itemsView": "summary",
+            });
+            let page = self.rpc.request("thread/turns/list", params).await.ok()?;
+            for turn in page["data"].as_array().into_iter().flatten() {
+                let asked = turn["items"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|i| i["type"] == "userMessage")
+                    .any(|i| said(&i["content"]).trim_start().starts_with(want));
+                if asked {
+                    if seen == rewind.nth {
+                        return Some(text(&turn["id"]));
+                    }
+                    seen += 1;
+                }
+            }
+            cursor = page["nextCursor"].clone();
+            if cursor.is_null() {
+                return None;
+            }
+        }
     }
 
     fn turn_params(&self, prompts: &[Prompt]) -> Value {
@@ -273,6 +342,21 @@ impl Actor {
         });
         if let Some(effort) = &self.launch.effort {
             p["effort"] = json!(effort);
+        }
+        if self.launch.model != self.opened.0
+            && let Some(model) = &self.launch.model
+        {
+            p["model"] = json!(model);
+        }
+        if self.launch.permission != self.opened.1 {
+            let (approval, sandbox) = policy(self.launch.permission);
+            let kind = match sandbox {
+                "read-only" => "readOnly",
+                "workspace-write" => "workspaceWrite",
+                _ => "dangerFullAccess",
+            };
+            p["approvalPolicy"] = json!(approval);
+            p["sandboxPolicy"] = json!({ "type": kind });
         }
         p
     }
@@ -302,19 +386,30 @@ impl Actor {
                     drop(self.rpc.request("turn/interrupt", params));
                 }
             }
+            Input::Configure(launch) => {
+                self.launch.model = launch.model;
+                self.launch.effort = launch.effort;
+                self.launch.permission = launch.permission;
+            }
             Input::Answer {
-                request, answer, ..
+                request,
+                answer,
+                answers,
             } => {
-                if let Some((id, elicit)) = self.approvals.remove(&request) {
-                    let reply = match (elicit, answer) {
-                        (true, Answer::Deny) => json!({ "action": "decline" }),
-                        (true, _) => json!({ "action": "accept", "content": {} }),
-                        (false, Answer::Allow) => json!({ "decision": "accept" }),
-                        (false, Answer::AllowAlways) => json!({ "decision": "acceptForSession" }),
-                        (false, Answer::Deny) => json!({ "decision": "decline" }),
-                    };
-                    self.rpc.respond(&id, reply);
-                }
+                let (id, reply) = match self.approvals.remove(&request) {
+                    Some(Asked::Elicit(id)) => match answer {
+                        Answer::Deny => (id, json!({ "action": "decline" })),
+                        _ => (id, json!({ "action": "accept", "content": {} })),
+                    },
+                    Some(Asked::Approval(id)) => match answer {
+                        Answer::Allow => (id, json!({ "decision": "accept" })),
+                        Answer::AllowAlways => (id, json!({ "decision": "acceptForSession" })),
+                        Answer::Deny => (id, json!({ "decision": "decline" })),
+                    },
+                    Some(Asked::Questions(id, ids)) => (id, replies(&ids, &answers)),
+                    None => return,
+                };
+                self.rpc.respond(&id, reply);
             }
         }
     }
@@ -374,6 +469,19 @@ impl Actor {
                 tool: String::new(),
                 input: text(&params["message"]),
             },
+            "item/tool/requestUserInput" => {
+                let (tool, ids) = questions(&params);
+                let request = key(&id);
+                self.approvals
+                    .insert(request.clone(), Asked::Questions(id, ids));
+                (self.emit)(RunEvent::Approval {
+                    request,
+                    tool,
+                    reason: None,
+                    always: false,
+                });
+                return;
+            }
             // anything else must still get an answer, or the turn waits forever
             _ => {
                 let message = format!("HyprSpace does not answer {method} yet.");
@@ -383,7 +491,12 @@ impl Actor {
         };
         let request = key(&id);
         let elicit = matches!(tool, Tool::Mcp { .. });
-        self.approvals.insert(request.clone(), (id, elicit));
+        let asked = if elicit {
+            Asked::Elicit(id)
+        } else {
+            Asked::Approval(id)
+        };
+        self.approvals.insert(request.clone(), asked);
         (self.emit)(RunEvent::Approval {
             request,
             tool,
@@ -437,6 +550,18 @@ impl Actor {
                 }
             }
             "item/completed" => self.completed(&params["item"]),
+            "turn/plan/updated" => {
+                let id = format!("plan-{}", text(&params["turnId"]));
+                (self.emit)(RunEvent::Tool {
+                    id: id.clone(),
+                    tool: plan(&params["plan"]),
+                });
+                (self.emit)(RunEvent::ToolDone {
+                    id,
+                    ok: true,
+                    output: String::new(),
+                });
+            }
             "thread/tokenUsage/updated" => {
                 let usage = &params["tokenUsage"];
                 let last = &usage["last"];
@@ -573,6 +698,84 @@ fn text(v: &Value) -> String {
     v.as_str().unwrap_or_default().to_string()
 }
 
+fn said(content: &Value) -> String {
+    content
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|c| c["type"] == "text")
+        .filter_map(|c| c["text"].as_str())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+const IN_A_MESSAGE: &str = "I'll answer in a message";
+
+fn questions(params: &Value) -> (Tool, Vec<(String, String)>) {
+    let mut ids = Vec::new();
+    let qs: Vec<Value> = params["questions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|q| {
+            let question = text(&q["question"]);
+            ids.push((question.clone(), text(&q["id"])));
+            let mut options: Vec<Value> = q["options"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|o| json!({ "label": text(&o["label"]), "description": text(&o["description"]) }))
+                .collect();
+            if options.is_empty() {
+                options.push(json!({ "label": IN_A_MESSAGE, "description": "" }));
+            }
+            json!({
+                "header": text(&q["header"]),
+                "question": question,
+                "options": options,
+                "multiSelect": false,
+            })
+        })
+        .collect();
+    let tool = Tool::Other {
+        name: "AskUserQuestion".into(),
+        input: json!({ "questions": qs }).to_string(),
+    };
+    (tool, ids)
+}
+
+fn replies(ids: &[(String, String)], answers: &[(String, String)]) -> Value {
+    let picked: serde_json::Map<String, Value> = ids
+        .iter()
+        .filter_map(|(question, id)| {
+            let said = answers.iter().find(|(q, _)| q == question)?;
+            Some((id.clone(), json!({ "answers": [said.1] })))
+        })
+        .collect();
+    json!({ "answers": picked })
+}
+
+fn plan(steps: &Value) -> Tool {
+    let todos: Vec<Value> = steps
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|s| {
+            let status = match s["status"].as_str() {
+                Some("completed") => "completed",
+                Some("inProgress") => "in_progress",
+                _ => "pending",
+            };
+            let step = text(&s["step"]);
+            json!({ "content": step, "activeForm": step, "status": status })
+        })
+        .collect();
+    Tool::Other {
+        name: "TodoWrite".into(),
+        input: json!({ "todos": todos }).to_string(),
+    }
+}
+
 fn limited(error: &Value) -> bool {
     let info = &error["codexErrorInfo"];
     info == "usageLimitExceeded"
@@ -614,6 +817,43 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn codex_questions_read_as_claudes_and_answer_by_id() {
+        let params = json!({ "questions": [
+            { "id": "q1", "header": "Db", "question": "Which db?",
+              "options": [{ "label": "sqlite", "description": "small" }] },
+            { "id": "q2", "header": "Name", "question": "What name?" },
+        ]});
+        let (tool, ids) = questions(&params);
+        let Tool::Other { name, input } = &tool else {
+            panic!("a question card");
+        };
+        assert_eq!(name, "AskUserQuestion");
+        let v: Value = serde_json::from_str(input).unwrap();
+        assert_eq!(v["questions"][0]["options"][0]["label"], "sqlite");
+        assert_eq!(v["questions"][1]["options"][0]["label"], IN_A_MESSAGE);
+        let said = vec![("Which db?".to_string(), "sqlite".to_string())];
+        assert_eq!(
+            replies(&ids, &said),
+            json!({ "answers": { "q1": { "answers": ["sqlite"] } } })
+        );
+    }
+
+    #[test]
+    fn codex_plans_read_as_todo_lists() {
+        let Tool::Other { name, input } = plan(&json!([
+            { "step": "Read", "status": "completed" },
+            { "step": "Fix", "status": "inProgress" },
+            { "step": "Test", "status": "pending" },
+        ])) else {
+            panic!("a todo list");
+        };
+        assert_eq!(name, "TodoWrite");
+        let v: Value = serde_json::from_str(&input).unwrap();
+        assert_eq!(v["todos"][1]["status"], "in_progress");
+        assert_eq!(v["todos"][2]["content"], "Test");
+    }
 
     #[test]
     fn permissions_map_to_codex_presets() {

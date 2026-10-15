@@ -58,6 +58,14 @@ pub enum Command {
         id: SessionId,
         journal: String,
     },
+    TrimJournal {
+        journal: String,
+        keep: usize,
+    },
+    Configure {
+        id: SessionId,
+        launch: Launch,
+    },
     /// Spawn the default shell in a PTY sized `cols` x `rows`. With `run`, the engine types that
     /// agent's launch command into the shell once it is up, then `prompt` once the CLI is ready
     /// for it. The command never carries user text; the prompt goes in as keystrokes.
@@ -295,6 +303,14 @@ mod tests {
             Command::LoadJournal {
                 id: SessionId(1),
                 journal: "thread-4".into(),
+            },
+            Command::TrimJournal {
+                journal: "thread-4".into(),
+                keep: 2,
+            },
+            Command::Configure {
+                id: SessionId(1),
+                launch: Launch::new(Agent::Claude, "/w"),
             },
             Command::LoadState,
             Command::SaveState {

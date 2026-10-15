@@ -58,6 +58,11 @@ pub(super) fn page() -> AnyElement {
                 line("Command palette, again", "", &[chord(&[MOD, "Shift", "P"])]),
                 line("Sidebar", "", &[chord(&[MOD, "Shift", "B"])]),
                 line("Files and git", "", &[chord(&[MOD, "Shift", "G"])]),
+                line(
+                    "Terminal under a structured thread",
+                    "",
+                    &[chord(&["Ctrl", "`"])],
+                ),
                 line("Close Settings", "", &["Esc".into()]),
             ],
         ))

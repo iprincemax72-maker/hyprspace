@@ -337,6 +337,11 @@ async fn serve(
                     let _ = live.queue.unbounded_send(Ask::Interrupt);
                 }
             }
+            Command::Configure { id, launch } => {
+                if let Some(live) = structured.get(&id) {
+                    live.session.configure(launch);
+                }
+            }
             Command::Approve {
                 id,
                 request,
@@ -359,6 +364,10 @@ async fn serve(
                     let entries = journal::load(&file);
                     let _ = events.unbounded_send(Event::Journal { id, entries });
                 });
+            }
+            Command::TrimJournal { journal, keep } => {
+                let file = journal::path(&journals, &journal);
+                block_in_place(|| journal::trim(&file, keep));
             }
             Command::LoadState => requests.load_state(),
             Command::SaveState { state } => block_in_place(|| requests.save_state(&state)),

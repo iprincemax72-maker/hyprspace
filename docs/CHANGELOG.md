@@ -4,6 +4,16 @@ Release notes for HyprSpace. Written **at ship time** — when you ask to ship, 
 changed since the last release and writes a few user-facing bullets; `deploy.ps1` records them here
 and uses them as the release notes + the in-app "What's new" notification. No per-task bookkeeping.
 
+## 0.24.19 — 2026-10-15
+
+- Press Ctrl+` in a structured thread for a terminal under the chat, with tabs for more shells.
+- Type /model, /effort, /plan, /clear or /context in a structured thread. Commands that need their own screen say to use a terminal thread.
+- Point at one of your messages and click the pencil to edit it and carry on from there.
+- Codex threads show their plan as a task list and ask their questions in a card.
+- Change the model, effort or access while a thread works. The change applies when the run ends.
+- Replies to commands like /usage keep their line breaks.
+- Swipe the update and What's new cards to the side to dismiss them.
+
 ## 0.24.18 — 2026-10-15
 
 - Checking your projects' git status starts about a quarter as many git processes, so the app uses less CPU.

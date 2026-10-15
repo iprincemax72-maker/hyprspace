@@ -3,12 +3,12 @@
 // update. It shows only when there is something to act on or read.
 
 use gpui::{
-    AnyElement, App, ClickEvent, Div, Entity, FontWeight, Transformation, div, percentage,
-    prelude::*, px, relative,
+    AnyElement, App, ClickEvent, Div, Entity, FontWeight, MouseButton, Transformation, div,
+    percentage, prelude::*, px, relative,
 };
 use hyprspace_proto::update::Step;
 
-use super::{Phase, Updater, VERSION, running, step_text};
+use super::{Phase, Swipe, Updater, VERSION, running, step_text};
 use crate::assets::icon;
 use crate::pace::Looping;
 use crate::{colors, widgets};
@@ -16,7 +16,10 @@ use crate::{colors, widgets};
 /// The cards for the window's bottom right corner, or None when there is nothing to show.
 pub fn overlay(updater: &Entity<Updater>, working: usize, cx: &App) -> Option<AnyElement> {
     let u = updater.read(cx);
-    let news = u.whats_new.clone().map(|notes| whats_new(updater, notes));
+    let news = u
+        .whats_new
+        .clone()
+        .map(|notes| swipeable(updater, true, whats_new(updater, notes), cx));
     let card = match (&u.phase, u.confirm) {
         (Phase::Busy(step), _) => Some(busy(*step, u.progress())),
         _ if u.dismissed => None,
@@ -24,6 +27,10 @@ pub fn overlay(updater: &Entity<Updater>, working: usize, cx: &App) -> Option<An
         (Phase::Available(r), None) => Some(available(updater, &r.version, working)),
         (Phase::Failed(m), None) => Some(failed(updater, m, working)),
         _ => None,
+    };
+    let card = match (&u.phase, card) {
+        (Phase::Busy(_), card) => card,
+        (_, card) => card.map(|c| swipeable(updater, false, c, cx)),
     };
     if news.is_none() && card.is_none() {
         return None;
@@ -43,6 +50,58 @@ pub fn overlay(updater: &Entity<Updater>, working: usize, cx: &App) -> Option<An
     )
 }
 
+pub(super) const DISMISS: f32 = 90.;
+
+fn swipeable(updater: &Entity<Updater>, news: bool, card: AnyElement, cx: &App) -> AnyElement {
+    let dx = updater
+        .read(cx)
+        .swipe
+        .filter(|s| s.news == news)
+        .map_or(0., |s| s.dx);
+    let (down, moved, up, out) = (
+        updater.clone(),
+        updater.clone(),
+        updater.clone(),
+        updater.clone(),
+    );
+    div()
+        .relative()
+        // clicks on the card stay on the card
+        .occlude()
+        .left(px(dx))
+        .opacity(1. - (dx / (DISMISS * 2.)).min(0.7))
+        .child(card)
+        .on_mouse_down(MouseButton::Left, move |e, _, cx| {
+            down.update(cx, |u, cx| {
+                u.swipe = Some(Swipe {
+                    news,
+                    from: e.position.x.into(),
+                    dx: 0.,
+                });
+                cx.notify();
+            })
+        })
+        .on_mouse_move(move |e, _, cx| {
+            if e.pressed_button != Some(MouseButton::Left) {
+                return;
+            }
+            moved.update(cx, |u, cx| {
+                if let Some(s) = u.swipe.as_mut().filter(|s| s.news == news) {
+                    let x: f32 = e.position.x.into();
+                    s.dx = (x - s.from).max(0.);
+                    cx.notify();
+                }
+            })
+        })
+        .on_mouse_up(MouseButton::Left, move |_, _, cx| {
+            up.update(cx, |u, cx| u.end_swipe(news, cx))
+        })
+        .on_mouse_up_out(MouseButton::Left, move |_, _, cx| {
+            out.update(cx, |u, cx| u.end_swipe(news, cx))
+        })
+        .into_any_element()
+}
+
 fn frame() -> Div {
     div()
         .flex()
@@ -58,8 +117,6 @@ fn frame() -> Div {
         .shadow(colors::shadow())
         .text_size(px(12.))
         .text_color(colors::text1())
-        // clicks on the card stay on the card
-        .occlude()
 }
 
 fn dot(error: bool) -> Div {
@@ -155,6 +212,7 @@ fn busy(step: Step, progress: Option<f32>) -> AnyElement {
             .into_any_element(),
     };
     frame()
+        .occlude()
         .flex_col()
         .items_stretch()
         .gap(px(8.))

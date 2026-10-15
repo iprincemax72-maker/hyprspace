@@ -46,7 +46,15 @@ pub struct Updater {
     last_check: Option<Instant>,
     /// What's new in this version, until it is closed.
     pub(crate) whats_new: Option<Vec<String>>,
+    pub(crate) swipe: Option<Swipe>,
     _poll: Task<()>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct Swipe {
+    pub(crate) news: bool,
+    pub(crate) from: f32,
+    pub(crate) dx: f32,
 }
 
 impl Updater {
@@ -64,6 +72,7 @@ impl Updater {
             phase: Phase::Idle,
             silent: true,
             dismissed: false,
+            swipe: None,
             confirm: None,
             last_check: None,
             whats_new: None,
@@ -159,6 +168,20 @@ impl Updater {
     /// This version's notes again, from Settings, About.
     pub fn show_whats_new(&mut self, cx: &mut Context<Self>) {
         self.whats_new = Some(changelog::notes(VERSION));
+        cx.notify();
+    }
+
+    pub(crate) fn end_swipe(&mut self, news: bool, cx: &mut Context<Self>) {
+        let Some(s) = self.swipe.take().filter(|s| s.news == news) else {
+            return;
+        };
+        if s.dx >= toast::DISMISS {
+            if news {
+                self.close_whats_new(cx);
+            } else {
+                self.dismiss(cx);
+            }
+        }
         cx.notify();
     }
 

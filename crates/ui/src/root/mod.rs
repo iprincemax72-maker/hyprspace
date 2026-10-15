@@ -25,6 +25,8 @@ use crate::input::{InputEvent, TextInput};
 use crate::terminal::TerminalView;
 use crate::transcript::{Status, TranscriptView};
 
+const BATCH: usize = 256;
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Screen {
     Thread(u64),
@@ -235,11 +237,19 @@ impl Root {
             }),
         ];
         let pump = cx.spawn_in(window, async move |this, cx| {
-            while let Some(event) = events.next().await {
-                if this
-                    .update_in(cx, |root, window, cx| root.route(event, window, cx))
-                    .is_err()
+            while let Some(first) = events.next().await {
+                let mut batch = vec![first];
+                while batch.len() < BATCH
+                    && let Ok(event) = events.try_recv()
                 {
+                    batch.push(event);
+                }
+                let routed = this.update_in(cx, |root, window, cx| {
+                    for event in batch {
+                        root.route(event, window, cx);
+                    }
+                });
+                if routed.is_err() {
                     break;
                 }
             }

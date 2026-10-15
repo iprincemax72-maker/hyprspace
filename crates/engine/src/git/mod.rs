@@ -16,6 +16,7 @@ pub use commit::{commit, create_pr, file_op, pr_defaults, push};
 pub use setup::{clone, create_project_dir, init, init_repo, new_project};
 pub use status::{
     branch_in_repo, branch_info, changes, changes_in_repo, diff, is_repo, ls_files, root,
+    summary_in_repo,
 };
 pub use worktree::{branches, create_worktree, finish as finish_worktree};
 

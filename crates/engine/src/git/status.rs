@@ -41,12 +41,46 @@ pub fn changes(cwd: &Path) -> Result<Vec<FileChange>> {
 
 /// `changes` for a folder already known to be in a repo.
 pub fn changes_in_repo(cwd: &Path) -> Result<Vec<FileChange>> {
+    let status = git(
+        cwd,
+        &["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+    )?;
+    Ok(counted(cwd, porcelain(&status)))
+}
+
+pub fn summary_in_repo(cwd: &Path) -> Result<(Vec<FileChange>, BranchInfo)> {
+    let out = git(
+        cwd,
+        &[
+            "status",
+            "--porcelain=v1",
+            "--branch",
+            "-z",
+            "--untracked-files=all",
+        ],
+    )?;
+    let (head, rest) = match out.strip_prefix("## ") {
+        Some(h) => h.split_once('\0').unwrap_or((h, "")),
+        None => ("", out.as_str()),
+    };
+    Ok((counted(cwd, porcelain(rest)), head_line(head)))
+}
+
+fn counted(cwd: &Path, entries: Vec<(String, String)>) -> Vec<FileChange> {
+    let touched = |column: usize| {
+        entries
+            .iter()
+            .any(|(code, _)| !matches!(code.as_bytes()[column], b' ' | b'?' | b'!'))
+    };
     // line counts from staged + unstaged numstat, summed per path
     let mut counts: HashMap<String, (u32, u32)> = HashMap::new();
-    for args in [
-        ["diff", "--numstat"].as_slice(),
-        ["diff", "--numstat", "--cached"].as_slice(),
+    for (column, args) in [
+        (1, ["diff", "--numstat"].as_slice()),
+        (0, ["diff", "--numstat", "--cached"].as_slice()),
     ] {
+        if !touched(column) {
+            continue;
+        }
         if let Ok(s) = git(cwd, args) {
             for (path, a, r) in numstat(&s) {
                 let e = counts.entry(path).or_insert((0, 0));
@@ -55,12 +89,7 @@ pub fn changes_in_repo(cwd: &Path) -> Result<Vec<FileChange>> {
             }
         }
     }
-
-    let status = git(
-        cwd,
-        &["status", "--porcelain=v1", "-z", "--untracked-files=all"],
-    )?;
-    Ok(porcelain(&status)
+    entries
         .into_iter()
         .map(|(status, path)| {
             let (added, removed) = counts.get(&path).copied().unwrap_or((0, 0));
@@ -71,7 +100,41 @@ pub fn changes_in_repo(cwd: &Path) -> Result<Vec<FileChange>> {
                 removed,
             }
         })
-        .collect())
+        .collect()
+}
+
+fn head_line(head: &str) -> BranchInfo {
+    let mut bi = BranchInfo {
+        is_repo: true,
+        ..BranchInfo::default()
+    };
+    if head.starts_with("No commits yet on ") || head.starts_with("Initial commit on ") {
+        return bi;
+    }
+    if head.starts_with("HEAD (no branch)") {
+        bi.branch = "HEAD".into();
+        return bi;
+    }
+    let (names, tracking) = match head.split_once(" [") {
+        Some((n, t)) => (n, t.trim_end_matches(']')),
+        None => (head, ""),
+    };
+    let (branch, upstream) = match names.split_once("...") {
+        Some((b, _)) => (b, true),
+        None => (names, false),
+    };
+    bi.branch = branch.to_string();
+    if upstream && tracking != "gone" {
+        bi.upstream = true;
+        for part in tracking.split(", ") {
+            if let Some(n) = part.strip_prefix("ahead ") {
+                bi.ahead = n.parse().unwrap_or(0);
+            } else if let Some(n) = part.strip_prefix("behind ") {
+                bi.behind = n.parse().unwrap_or(0);
+            }
+        }
+    }
+    bi
 }
 
 // "<added>\t<removed>\t<path>" per line; binary files report "-" and count as 0
@@ -224,5 +287,73 @@ mod tests {
         assert!(bi.is_repo);
         assert_eq!(bi.branch, "main");
         assert!(!bi.upstream);
+    }
+
+    fn sorted(mut v: Vec<FileChange>) -> Vec<FileChange> {
+        v.sort_by(|a, b| a.path.cmp(&b.path));
+        v
+    }
+
+    fn same_as_six_calls(cwd: &Path, state: &str) {
+        let (changes, branch) = summary_in_repo(cwd).unwrap();
+        assert_eq!(
+            sorted(changes),
+            sorted(changes_in_repo(cwd).unwrap()),
+            "{state}"
+        );
+        assert_eq!(branch, branch_in_repo(cwd), "{state}");
+    }
+
+    #[test]
+    fn one_status_reads_what_six_calls_did() {
+        let dir = tempfile::tempdir().unwrap();
+        let (work, remote) = (dir.path().join("work"), dir.path().join("remote.git"));
+        std::fs::create_dir_all(&work).unwrap();
+        let cwd = work.as_path();
+        testing::repo(cwd);
+        std::fs::write(cwd.join("loose.txt"), "x\n").unwrap();
+        same_as_six_calls(cwd, "no commits yet");
+
+        testing::commit_all(cwd, "first");
+        same_as_six_calls(cwd, "clean");
+
+        testing::bare(&remote);
+        testing::push_upstream(cwd, &remote);
+        std::fs::write(cwd.join("a.txt"), "one\n").unwrap();
+        testing::commit_all(cwd, "second");
+        same_as_six_calls(cwd, "ahead of its upstream");
+
+        std::fs::write(cwd.join("a.txt"), "one\ntwo\n").unwrap();
+        super::git(cwd, &["add", "a.txt"]).unwrap();
+        std::fs::write(cwd.join("a.txt"), "one\ntwo\nthree\n").unwrap();
+        std::fs::write(cwd.join("b c.txt"), "spaced\n").unwrap();
+        super::git(cwd, &["mv", "loose.txt", "moved.txt"]).unwrap();
+        same_as_six_calls(cwd, "staged, unstaged, renamed and untracked");
+        let (changes, _) = summary_in_repo(cwd).unwrap();
+        let a = changes.iter().find(|c| c.path == "a.txt").unwrap();
+        assert_eq!((a.status.as_str(), a.added, a.removed), ("MM", 2, 0));
+
+        super::git(cwd, &["config", "branch.main.merge", "refs/heads/gone"]).unwrap();
+        let raw = super::git(cwd, &["status", "--porcelain=v1", "--branch", "-z"]).unwrap();
+        assert!(raw.starts_with("## main...origin/gone [gone]"), "{raw}");
+        same_as_six_calls(cwd, "upstream gone");
+
+        super::git(cwd, &["checkout", "-q", "--detach"]).unwrap();
+        same_as_six_calls(cwd, "detached");
+    }
+
+    #[test]
+    fn head_lines_read_like_branch_in_repo() {
+        let bi = head_line("main...origin/main [ahead 2, behind 3]");
+        assert_eq!(
+            (bi.branch.as_str(), bi.upstream, bi.ahead, bi.behind),
+            ("main", true, 2, 3)
+        );
+        let bi = head_line("feature/x...origin/feature/x");
+        assert_eq!((bi.branch.as_str(), bi.upstream), ("feature/x", true));
+        assert!(!head_line("main...origin/main [gone]").upstream);
+        assert_eq!(head_line("main").branch, "main");
+        assert_eq!(head_line("HEAD (no branch)").branch, "HEAD");
+        assert_eq!(head_line("No commits yet on main").branch, "");
     }
 }

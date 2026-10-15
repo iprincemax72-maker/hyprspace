@@ -4,8 +4,9 @@
 // fail. Reads (status, a diff) skip it: git runs with optional locks off (`git::git_cmd`), so they
 // never take index.lock, and a diff the user clicked doesn't wait behind the sidebar's polls.
 
-use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use futures::channel::mpsc::UnboundedSender;
 use hyprspace_proto::Event;
@@ -180,17 +181,48 @@ fn done(cwd: std::path::PathBuf, result: git::Result<String>) -> Vec<FolderEvent
 }
 
 fn status(cwd: &Path) -> GitStatus {
-    let Some(root) = git::root(cwd) else {
+    let Some(root) = root(cwd) else {
         return GitStatus::default();
     };
     // the root proves it is a repo, so skip the checks `changes` and `branch_info` make
-    let mut changes = git::changes_in_repo(cwd).unwrap_or_default();
+    let (mut changes, branch) = git::summary_in_repo(cwd).unwrap_or_else(|_| {
+        roots().remove(cwd);
+        (Vec::new(), git::branch_in_repo(cwd))
+    });
     changes.sort_by(|a, b| a.path.cmp(&b.path));
     GitStatus {
         root: Some(root),
-        branch: git::branch_in_repo(cwd),
+        branch,
         changes,
     }
+}
+
+type Roots = HashMap<PathBuf, (PathBuf, PathBuf)>;
+
+fn roots() -> MutexGuard<'static, Roots> {
+    static ROOTS: OnceLock<Mutex<Roots>> = OnceLock::new();
+    ROOTS
+        .get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
+
+fn root(cwd: &Path) -> Option<PathBuf> {
+    let Some(marker) = cwd
+        .ancestors()
+        .find(|d| d.join(".git").exists())
+        .map(Path::to_path_buf)
+    else {
+        return git::root(cwd);
+    };
+    if let Some((seen, root)) = roots().get(cwd)
+        && *seen == marker
+    {
+        return Some(root.clone());
+    }
+    let root = git::root(cwd)?;
+    roots().insert(cwd.to_path_buf(), (marker, root.clone()));
+    Some(root)
 }
 
 /// `path` is relative to the repo root (it came from `status`), but git resolves paths after

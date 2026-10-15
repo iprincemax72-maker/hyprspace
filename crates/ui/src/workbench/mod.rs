@@ -315,6 +315,8 @@ impl Root {
         {
             picker.update(cx, |p, cx| p.listed(path, entries, cx));
         }
+        let same =
+            matches!(&e, FolderEvent::Git { cwd, status } if self.git.get(cwd) == Some(status));
         if let FolderEvent::Git { cwd, status } = &e {
             self.git.insert(cwd.clone(), status.clone());
         }
@@ -373,7 +375,9 @@ impl Root {
         {
             self.work.dock.update(cx, |d, cx| d.event(&e, cx));
         }
-        cx.notify();
+        if !same {
+            cx.notify();
+        }
     }
 
     /// A line in the bar that fades after a few seconds.

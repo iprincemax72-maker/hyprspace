@@ -28,7 +28,7 @@ enum Busy {
 }
 
 pub struct GitTab {
-    status: Option<GitStatus>,
+    pub(super) status: Option<GitStatus>,
     summary: Entity<TextInput>,
     body: Entity<TextInput>,
     busy: Option<Busy>,

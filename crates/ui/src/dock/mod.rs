@@ -124,6 +124,7 @@ impl Dock {
     pub fn event(&mut self, e: &FolderEvent, cx: &mut Context<Self>) {
         match e {
             FolderEvent::Dir { path, entries } => self.tree.listed(path, entries),
+            FolderEvent::Git { status, .. } if self.git.status.as_ref() == Some(status) => return,
             FolderEvent::Git { cwd, status } if Some(cwd) == self.folder.as_ref() => {
                 self.tree.decorate(status);
                 self.git.status(status.clone());

@@ -166,7 +166,12 @@ impl Root {
                     .hover(|s| s.bg(colors::accent().opacity(0.45)))
                     .on_drag(DockDrag, |_, _, _, cx| cx.new(|_| Nothing)),
             )
-            .child(self.work.dock.clone())
+            .child(
+                self.work
+                    .dock
+                    .clone()
+                    .cached(StyleRefinement::default().size_full()),
+            )
             .into_any_element()
     }
 }

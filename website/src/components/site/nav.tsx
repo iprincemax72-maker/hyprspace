@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
-import { Apple, Download, Github, Menu, Terminal, X } from "lucide-react"
+import { Apple, Download, Github, Menu, Smartphone, Terminal, X } from "lucide-react"
 import { AppIcon, Wrap } from "./primitives"
-import { DOWNLOAD_LINUX, DOWNLOAD_MAC, DOWNLOAD_WIN, LINUX_RELEASED, REPO } from "@/site"
+import { DOWNLOAD_ANDROID, DOWNLOAD_LINUX, DOWNLOAD_MAC, DOWNLOAD_WIN, LINUX_RELEASED, REPO } from "@/site"
 
 const LINKS: [string, string][] = [
   ["Install", "#install"],
@@ -15,12 +15,12 @@ const LINKS: [string, string][] = [
  * the wrong thing or who is grabbing a build for a different machine.
  */
 export function usePlatform() {
-  const [os, setOs] = useState<"win" | "mac" | "linux">("win")
+  const [os, setOs] = useState<"win" | "mac" | "linux" | "android">("win")
   useEffect(() => {
     const ua = navigator.userAgent
     // Android's UA also says "Linux", and it wants the companion app, not a desktop AppImage
     const linux = /Linux|X11/.test(ua) && !/Android/.test(ua)
-    setOs(/Mac|iPhone|iPad/.test(ua) ? "mac" : linux ? "linux" : "win")
+    setOs(/Android/.test(ua) ? "android" : /Mac|iPhone|iPad/.test(ua) ? "mac" : linux ? "linux" : "win")
   }, [])
   const win = {
     href: DOWNLOAD_WIN,
@@ -47,8 +47,15 @@ export function usePlatform() {
         Icon: Terminal,
       }
     : { href: REPO, label: "Build from source", name: "Linux", req: "from source", Icon: Terminal }
-  const mine = os === "mac" ? osx : os === "linux" ? lin : win
-  const all = LINUX_RELEASED ? [win, osx, lin] : [win, osx]
+  const android = {
+    href: DOWNLOAD_ANDROID,
+    label: "Download for Android",
+    name: "Android",
+    req: "pairs with the desktop app",
+    Icon: Smartphone,
+  }
+  const mine = os === "mac" ? osx : os === "linux" ? lin : os === "android" ? android : win
+  const all = LINUX_RELEASED ? [win, osx, lin, android] : [win, osx, android]
   return { ...mine, short: "Download", others: all.filter((b) => b !== mine) }
 }
 

@@ -1,346 +1,206 @@
-import { useEffect, useRef, useState, type ReactNode } from "react"
-import claudeIcon from "@/assets/brand/claude.svg"
-import openaiIcon from "@/assets/brand/openai.svg"
+import type { ReactNode } from "react"
+import { ArrowUp, ChevronDown, ChevronRight, Hand, Paperclip, Sparkles } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { Mark, UsageRing, useSeconds } from "./app/bits"
+import { CommitBox, GitFiles } from "./app/dock"
+import { ROWS, ThreadRow } from "./app/sidebar"
 
-/**
- * Slices of the real app, rebuilt in DOM against its own tokens — #161616 chrome, #1e1e1e raised
- * fills, the f5/a1/76 text ramp, 6px status dots. No generic "code window" furniture: the app has no
- * traffic lights and no lowercase window titles, so neither do these. Content is real too: this
- * repo's files, branches and commands rather than an invented acme-app.
- */
-
-/** true once the element has been scrolled into view — never flips back */
-function useInView<T extends HTMLElement>() {
-  const ref = useRef<T>(null)
-  const [seen, setSeen] = useState(false)
-  useEffect(() => {
-    const el = ref.current
-    if (!el || seen) return
-    const io = new IntersectionObserver(
-      ([e]) => {
-        if (e.isIntersecting) {
-          setSeen(true)
-          io.disconnect()
-        }
-      },
-      { threshold: 0.35 },
-    )
-    io.observe(el)
-    return () => io.disconnect()
-  }, [seen])
-  return [ref, seen] as const
+function Panel({ className, children }: { className?: string; children: ReactNode }) {
+  return <div className={cn("app overflow-hidden rounded-[10px] border border-white/[0.08]", className)}>{children}</div>
 }
 
-const S1 = "#161616" // chrome
-const S2 = "#1e1e1e" // raised
-const T1 = "#f5f5f5"
-const T2 = "#a1a1a1"
-const T3 = "#767676"
-const B1 = "rgba(255,255,255,0.06)"
-
-/** the app's panel: flat chrome, hairline border, an uppercase section label like the rail's */
-function Panel({ label, children }: { label: string; children: ReactNode }) {
+export function ThreadsVignette() {
+  const secs = useSeconds()
   return (
-    <div
-      className="overflow-hidden rounded-[10px] border"
-      style={{ background: S1, borderColor: B1 }}
-    >
-      <div
-        className="px-3 pt-2.5 pb-1.5 text-[10px] font-semibold tracking-[0.07em] uppercase"
-        style={{ color: T3 }}
-      >
-        {label}
-      </div>
-      {children}
-    </div>
-  )
-}
-
-const mono = "font-mono text-[11px] leading-[1.85]"
-
-function Dot({ tone, className = "" }: { tone: "work" | "wait" | "done"; className?: string }) {
-  const c = tone === "work" ? "#f59e0b" : tone === "wait" ? "#3b82f6" : "#10b981"
-  return (
-    <i
-      className={`inline-block size-1.5 shrink-0 rounded-full ${tone !== "done" ? "hs-pulse" : ""} ${className}`}
-      style={{ background: c }}
-    />
-  )
-}
-
-/** the sidebar: project → branch → two-line agent rows, with a sub-agent under the first */
-export function TreeVignette() {
-  return (
-    <Panel label="Threads">
-      <div className="px-2 pb-3 text-[12px]">
-        {/* the space header: a chevron and its name, the way the sidebar folds */}
-        <div className="flex items-center gap-1 px-1 py-1">
-          <svg viewBox="0 0 24 24" className="size-3 shrink-0 rotate-90" fill="none" stroke={T3} strokeWidth="2.2">
-            <path d="m9 18 6-6-6-6" />
-          </svg>
-          <span className="font-semibold" style={{ color: T1 }}>hyprspace</span>
-        </div>
-        <div className="flex items-center gap-1.5 px-2 pb-1 font-mono text-[10px]" style={{ color: T3 }}>
-          <span>3 files</span>
-          <span style={{ color: "#10b981" }}>+64</span>
-          <span style={{ color: "#ef4444" }}>&minus;12</span>
-        </div>
-
-        <div className="grid gap-0.5 pl-3">
-          {[
-            [claudeIcon, "Opus 5", "implement the session resume endpoint", "work", "now", true],
-            [openaiIcon, "gpt-5.6-sol", "cover the resume path with tests", "done", "4m", false],
-          ].map(([ic, model, title, tone, when, subs]) => (
-            <div key={title as string}>
-              <div className="grid gap-[3px] rounded-lg px-2 py-1.5" style={subs ? { background: S2 } : undefined}>
-                <div className="flex items-center gap-1.5">
-                  <img src={ic as string} alt="" className="size-3" />
-                  <span className="font-mono text-[10px]" style={{ color: T3 }}>{model as string}</span>
-                  {subs ? (
-                    <span
-                      className="flex items-center gap-1 rounded px-1 font-mono text-[9px]"
-                      style={{ background: "rgba(245,158,11,0.14)", color: "#f59e0b" }}
-                    >
-                      2
-                    </span>
-                  ) : null}
-                  <span className="ml-auto font-mono text-[10px]" style={{ color: T3 }}>{when as string}</span>
-                </div>
-                <div className="truncate text-[11.5px]" style={{ color: T1 }}>{title as string}</div>
-                <div className="flex items-center gap-1.5 text-[10px]" style={{ color: T3 }}>
-                  <svg viewBox="0 0 24 24" className="size-2.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2">
-                    <line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" />
-                    <path d="M18 9a9 9 0 0 1-9 9" />
-                  </svg>
-                  <span className="font-mono">main</span>
-                  <Dot tone={tone as "work"} className="ml-auto" />
-                </div>
-              </div>
-
-              {/* the sub-agents that thread has running, as their own small cards */}
-              {subs ? (
-                <div className="mt-[3px] grid gap-[3px]">
-                  {[
-                    ["security audit", "1m"],
-                    ["test coverage", "40s"],
-                  ].map(([label, ago]) => (
-                    <div
-                      key={label}
-                      className="flex items-center gap-1.5 rounded-md border px-1.5 py-1"
-                      style={{ borderColor: B1, background: "rgba(255,255,255,0.02)" }}
-                    >
-                      <span className="flex size-3.5 shrink-0 items-center justify-center rounded-full" style={{ background: "#282828" }}>
-                        <img src={claudeIcon} alt="" className="size-2" />
-                      </span>
-                      <span className="truncate text-[10.5px]" style={{ color: T2 }}>{label}</span>
-                      <span className="ml-auto font-mono text-[9.5px]" style={{ color: T3 }}>{ago}</span>
-                      <Dot tone="work" className="!size-1" />
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      </div>
+    <Panel className="flex flex-col gap-0.5 p-1.5">
+      {ROWS.slice(1, 4).map((row) => (
+        <ThreadRow key={row.title} row={row} secs={secs} />
+      ))}
     </Panel>
   )
 }
 
-function Meter({ label, value, width, slow, tick }: { label: string; value: string; width: string; slow?: boolean; tick?: boolean }) {
-  const [ref, seen] = useInView<HTMLDivElement>()
+function Limit({ name, when, left }: { name: string; when: string; left: number }) {
   return (
-    <div ref={ref}>
-      <div className="flex items-baseline justify-between">
-        <span className="text-[10px] font-semibold tracking-[0.07em] uppercase" style={{ color: T2 }}>{label}</span>
-        <span className="font-mono text-[13px]" style={{ color: T1 }}>{value}</span>
+    <div className="flex items-center gap-3 px-3.5 py-2.5">
+      <UsageRing pct={100 - left} color="#d97757" size={22} />
+      <div className="flex min-w-0 flex-1 flex-col gap-px">
+        <span className="truncate text-[13px] font-medium">{name}</span>
+        <span className="truncate text-[11.5px] text-(--t3)">{when}</span>
       </div>
-      <div className="relative mt-1.5 h-1.5 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,0.14)" }}>
-        {/* fills once when you reach it and then stays put — a looping meter reads as a progress
-            spinner rather than a reading */}
-        <i
-          className="block h-full transition-[width] duration-[1100ms] ease-out"
-          style={{
-            width: seen ? width : "4%",
-            background: slow ? T2 : T1,
-            transitionDelay: slow ? "180ms" : "0ms",
-          }}
-        />
-        {tick && <span className="absolute inset-y-0 left-[46%] w-px bg-white/90" />}
+      <div className="flex flex-col items-end">
+        <span className="text-[15px] font-semibold">{left}%</span>
+        <span className="text-[10.5px] text-(--t3)">left</span>
       </div>
     </div>
   )
 }
 
-/** the usage popover, exactly as it renders in the titlebar */
 export function UsageVignette() {
   return (
-    <div className="overflow-hidden rounded-[10px] border p-3.5" style={{ background: S2, borderColor: "rgba(255,255,255,0.1)" }}>
-      <div className="grid gap-3">
-        <div className="text-[10px] font-semibold tracking-[0.07em] uppercase" style={{ color: T3 }}>Claude</div>
-        <Meter label="Session" value="34%" width="34%" />
-        <Meter label="All models" value="54%" width="54%" slow />
-        <div className="font-mono text-[10px]" style={{ color: T2 }}>resets in 2h 41m</div>
+    <Panel className="bg-(--s2)">
+      <div className="flex h-[38px] items-center gap-0.5 border-b border-(--b1) pr-2.5 pl-1.5">
+        <span className="flex items-center gap-1.5 rounded-md bg-white/[0.08] px-2.5 py-1.5 text-[12.5px] font-medium">
+          <Mark agent="claude" />
+          Claude
+        </span>
+        <span className="flex items-center gap-1.5 px-2.5 py-1.5 text-[12.5px] font-medium text-(--t3)">
+          <span className="opacity-60">
+            <Mark agent="codex" />
+          </span>
+          Codex
+        </span>
+        <span className="flex-1" />
+        <span className="rounded-full bg-white/[0.06] px-[7px] py-px text-[10.5px] font-medium text-(--t2)">Max</span>
       </div>
-    </div>
+      <Limit name="Session · 5h" when="Resets 6:40 PM · in 2h 41m" left={66} />
+      <Limit name="This week" when="Resets Mon 9:00 AM · in 4d" left={46} />
+    </Panel>
   )
 }
 
-/** the command palette */
 export function PaletteVignette() {
   return (
-    <Panel label="Ctrl K">
-      <div className={`${mono} px-3 pb-3`} style={{ color: T3 }}>
-        <div style={{ color: T2 }}>
-          deploy
-          <i className="ml-px inline-block h-[11px] w-1.5 align-middle hs-blink" style={{ background: T2 }} />
-        </div>
-        <div className="-mx-1 mt-1 rounded px-1" style={{ background: "#282828", color: T1 }}>
-          Open · deploy.ps1
-        </div>
-        <div>Run · Commit and push</div>
-        <div>New · Thread</div>
+    <Panel className="bg-(--s2) p-1.5 text-[12.5px]">
+      <div className="flex items-center gap-1 border-b border-(--b1) px-2 pt-1 pb-2 text-(--t2)">
+        resume
+        <i className="hs-blink block h-3.5 w-px bg-(--t2)" />
+      </div>
+      <div className="pt-1.5">
+        {[
+          ["Keep a conversation through a restart", "hyprspace"],
+          ["crates/engine/src/terminal.rs", "file"],
+          ["Resume the last thread", "action"],
+        ].map(([label, hint], i) => (
+          <div key={label} className={cn("flex h-7 items-center gap-2 rounded-md px-2", i === 0 && "bg-(--s3)")}>
+            <span className="min-w-0 flex-1 truncate">{label}</span>
+            <span className="shrink-0 text-[11px] text-(--t3)">{hint}</span>
+          </div>
+        ))}
       </div>
     </Panel>
   )
 }
 
-/** the review dock's diff */
-export function DiffVignette() {
+export function GitVignette() {
   return (
-    <Panel label="crates/engine/src/hooks.rs">
-      <div className={`${mono} px-3 pb-3`}>
-        <div style={{ color: T3 }}>126 fn post(port: u16, body: &amp;str) &#123;</div>
-        <div style={{ background: "rgba(16,185,129,0.1)", color: "#86efac" }}>127 + let addr = SocketAddr::from(..);</div>
-        <div style={{ background: "rgba(16,185,129,0.1)", color: "#86efac" }}>128 + TcpStream::connect_timeout(&amp;addr)</div>
-        <div style={{ background: "rgba(239,68,68,0.1)", color: "#fca5a5" }}>129 - TcpStream::connect(("127.0.0.1"))</div>
-      </div>
+    <Panel>
+      <GitFiles />
+      <CommitBox />
     </Panel>
   )
 }
 
-/** two real panes trading places in the grid */
-function MiniPane({ icon, name, line, tone, lifted }: { icon: string; name: string; line: string; tone: "work" | "done"; lifted: boolean }) {
+function MenuItem({ children, on, sub }: { children: ReactNode; on?: boolean; sub?: boolean }) {
   return (
-    <div
-      className="h-full overflow-hidden rounded-md border"
-      style={{
-        background: S1,
-        borderColor: lifted ? "rgba(255,255,255,0.18)" : B1,
-        boxShadow: lifted ? "0 14px 30px -10px rgba(0,0,0,0.85)" : "none",
-        transition: "border-color .25s, box-shadow .25s",
-      }}
-    >
-      <div className="flex items-center gap-1.5 px-1.5 py-1" style={{ borderBottom: `1px solid ${B1}` }}>
-        <img src={icon} alt="" className="size-2.5 shrink-0" />
-        <span className="truncate text-[9.5px]" style={{ color: T2 }}>{name}</span>
-        <Dot tone={tone} className="ml-auto !size-1" />
-      </div>
-      <div className="truncate px-1.5 py-1 font-mono text-[8.5px]" style={{ color: T3 }}>{line}</div>
+    <div className={cn("flex h-7 items-center gap-2 rounded-md px-2 text-[12.5px]", on && "bg-white/[0.08]")}>
+      <span className="flex-1 truncate">{children}</span>
+      {sub && <ChevronRight className="size-3 text-(--t3)" />}
     </div>
   )
 }
 
-const PANES: { icon: string; name: string; line: string; tone: "work" | "done" }[] = [
-  { icon: claudeIcon, name: "Claude", line: "Edit Rail.tsx", tone: "work" },
-  { icon: openaiIcon, name: "Codex", line: "cargo check", tone: "done" },
-  { icon: claudeIcon, name: "Claude 2", line: "Grep providers", tone: "work" },
-  { icon: openaiIcon, name: "Codex 2", line: "npm test", tone: "done" },
-]
+const menu = "rounded-[10px] border border-white/[0.13] bg-(--s3) p-[5px] shadow-[0_12px_32px_-8px_rgba(0,0,0,0.7)]"
 
-export function SwapVignette() {
-  const [ref, seen] = useInView<HTMLDivElement>()
-  // cell index each pane currently occupies; swapping two entries animates both via transform
-  const [cells, setCells] = useState([0, 1, 2, 3])
-  const [moving, setMoving] = useState<number[]>([])
-
-  useEffect(() => {
-    if (!seen || matchMedia("(prefers-reduced-motion: reduce)").matches) return
-    // walk through genuinely different pairs instead of trading the same two forever
-    const pairs = [
-      [0, 1],
-      [1, 3],
-      [2, 3],
-      [0, 2],
-      [0, 3],
-      [1, 2],
-    ]
-    let i = 0
-    const t = setInterval(() => {
-      const [a, b] = pairs[i++ % pairs.length]
-      setMoving([a, b])
-      setCells((c) => {
-        const n = [...c]
-        ;[n[a], n[b]] = [n[b], n[a]]
-        return n
-      })
-      setTimeout(() => setMoving([]), 620)
-    }, 2400)
-    return () => clearInterval(t)
-  }, [seen])
-
+export function WorktreeVignette() {
   return (
-    <Panel label="Layout · drag to rearrange">
-      <div ref={ref} className="relative mx-3 mb-3 h-[104px]">
-        {PANES.map((p, i) => {
-          const cell = cells[i]
-          const col = cell % 2
-          const row = Math.floor(cell / 2)
-          return (
-            <div
-              key={p.name}
-              className="absolute top-0 left-0 h-[calc(50%-3px)] w-[calc(50%-3px)]"
-              style={{
-                transform: `translate(calc(${col} * (100% + 6px)), calc(${row} * (100% + 6px)))`,
-                transition: "transform .6s cubic-bezier(.4,0,.2,1)",
-                zIndex: moving.includes(i) ? 10 : 1,
-              }}
-            >
-              <MiniPane {...p} lifted={moving.includes(i)} />
-            </div>
-          )
-        })}
+    <div className="app relative h-[172px] overflow-hidden rounded-[10px] border border-white/[0.08] p-3">
+      <div className={cn(menu, "w-[170px]")}>
+        <MenuItem>Settle thread</MenuItem>
+        <MenuItem sub>Snooze</MenuItem>
+        <i className="mx-1 my-1 block h-px bg-white/[0.08]" />
+        <MenuItem>Rename thread</MenuItem>
+        <MenuItem on sub>
+          Worktree
+        </MenuItem>
       </div>
-    </Panel>
+      <div className={cn(menu, "absolute top-[72px] left-[150px] w-[170px]")}>
+        <MenuItem>Merge into main</MenuItem>
+        <MenuItem on>Create pull request</MenuItem>
+        <MenuItem>Remove worktree</MenuItem>
+      </div>
+    </div>
   )
 }
 
-/** the built-in editor */
+export function PhoneVignette() {
+  return (
+    <div className="app flex h-[172px] justify-center overflow-hidden rounded-[10px] border border-white/[0.08] pt-4">
+      <div className="w-[176px] rounded-t-[22px] border-x border-t border-white/[0.14] bg-[#101010] px-2.5 pt-3">
+        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-white/[0.14]" />
+        <div className="rounded-xl border border-(--b1) bg-white/[0.035] p-2.5">
+          <div className="flex items-center gap-1.5 text-[10.5px] font-medium text-(--wait)">
+            <Hand className="size-[11px]" />
+            Needs your OK
+          </div>
+          <div className="mt-1 truncate text-[12px] font-medium">Run bun run build</div>
+          <div className="mt-2.5 flex gap-1.5">
+            <span className="flex h-6 flex-1 items-center justify-center rounded-md bg-white/[0.06] text-[11px]">
+              Deny
+            </span>
+            <span className="flex h-6 flex-1 items-center justify-center rounded-md bg-(--accent) text-[11px] text-white">
+              Allow
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function EditorVignette() {
+  const k = "text-[#c8aefa]"
+  const f = "text-[#86c3ff]"
+  const s = "text-[#90d192]"
   return (
-    <Panel label="src/stores/usage.ts">
-      <div className={`${mono} px-3 pb-3`} style={{ color: T3 }}>
-        <div><span style={{ color: "#c084fc" }}>export function</span> <span style={{ color: "#93c5fd" }}>summarize</span>(byPane) &#123;</div>
-        <div className="pl-3"><span style={{ color: "#c084fc" }}>const</span> all = Object.<span style={{ color: "#93c5fd" }}>entries</span>(byPane)</div>
-        <div className="pl-3"><span style={{ color: "#c084fc" }}>return</span> &#123; five, others &#125;</div>
-        <div>&#125;</div>
+    <Panel>
+      <div className="flex h-8 items-center gap-2 border-b border-(--b1) px-3 text-[12px]">
+        <span className="truncate">crates/engine/src/hooks.rs</span>
+        <i className="block size-1.5 rounded-full bg-(--t2)" />
+        <span className="flex-1" />
+        <span className="text-[11px] text-(--t3)">Ctrl+S</span>
       </div>
+      <pre className="px-3 py-2.5 font-app-mono text-[11px] leading-[1.85] text-[#e4e4e4]">
+        <span className={k}>fn</span> <span className={f}>post</span>(port: u16, body: &amp;str) {"{\n"}
+        {"    "}
+        <span className={k}>let</span> addr = <span className={f}>local</span>(port);{"\n"}
+        {"    "}
+        <span className={f}>send</span>(addr, <span className={s}>"application/json"</span>, body){"\n"}
+        {"}"}
+      </pre>
     </Panel>
   )
 }
 
-/** the composer: where a thread starts — model, effort, then the task */
 export function ComposerVignette() {
+  const chip = "flex h-[26px] shrink-0 items-center gap-1.5 rounded-lg px-2 text-[12px] whitespace-nowrap"
   return (
-    <div className="overflow-hidden rounded-[10px] border" style={{ background: S2, borderColor: "rgba(255,255,255,0.1)" }}>
-      <div className="px-3 pt-3 text-[12px]" style={{ color: T3 }}>
-        add a replay case and a reconnect test
-        <i className="ml-px inline-block h-[11px] w-1.5 align-middle hs-blink" style={{ background: T2 }} />
+    <Panel className="p-3">
+      <div className="mb-3 text-center text-[17px] font-medium">What should we work on?</div>
+      <div className="rounded-[18px] bg-white/[0.045]">
+        <div className="min-h-[52px] px-4 pt-3 text-[13px] leading-[21px] text-(--t2)">
+          Add a reconnect test for the phone bridge
+          <i className="hs-blink ml-px inline-block h-3.5 w-px translate-y-0.5 bg-(--t2)" />
+        </div>
+        <div className="flex items-center gap-0.5 px-1.5 pb-1.5 text-(--t3)">
+          <span className="flex size-7 items-center justify-center">
+            <Paperclip className="size-3.5" />
+          </span>
+          <span className={cn(chip, "bg-white/[0.1] text-(--t1)")}>
+            <Sparkles className="size-3" />
+            Structured
+          </span>
+          <span className="flex-1" />
+          <span className={cn(chip, "text-(--t1)")}>
+            <Mark agent="claude" />
+            Opus 5.5
+            <ChevronDown className="size-3 text-(--t3)" />
+          </span>
+          <span className="ml-1 flex size-7 items-center justify-center rounded-full bg-(--t1)">
+            <ArrowUp className="size-[15px] text-(--bg)" />
+          </span>
+        </div>
       </div>
-      <div className="mt-3 flex items-center gap-1.5 border-t px-2.5 py-2" style={{ borderColor: B1 }}>
-        <span className="flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px]" style={{ background: "#282828", color: T1 }}>
-          <img src={claudeIcon} alt="" className="size-3" />
-          Opus 5
-        </span>
-        <span className="rounded-md px-1.5 py-1 text-[11px]" style={{ background: "#282828", color: T1 }}>
-          xhigh
-        </span>
-        <span className="ml-auto flex size-6 items-center justify-center rounded-md" style={{ background: "#1b4ed8" }}>
-          <svg viewBox="0 0 24 24" className="size-3.5" fill="none" stroke="#fff" strokeWidth="2.4">
-            <path d="M12 19V5M5 12l7-7 7 7" />
-          </svg>
-        </span>
-      </div>
-    </div>
+    </Panel>
   )
 }

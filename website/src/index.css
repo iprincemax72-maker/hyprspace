@@ -32,6 +32,8 @@
 @theme inline {
   --font-sans: "DM Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+  --font-app: "Geist", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-app-mono: "Geist Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -100,29 +102,56 @@
   0% { width: 4%; }
   55%, 100% { width: var(--w, 34%); }
 }
-/* two panes trading places — one lifts as it travels, the way a dragged pane does */
-@keyframes hs-swap-a {
-  0%, 12% { transform: translate(0, 0) scale(1); box-shadow: none; }
-  34%, 66% {
-    transform: translate(calc(100% + 6px), 0) scale(1.03);
-    box-shadow: 0 14px 30px -10px rgba(0, 0, 0, 0.85);
-  }
-  88%, 100% { transform: translate(0, 0) scale(1); box-shadow: none; }
-}
-@keyframes hs-swap-b {
-  0%, 12% { transform: translate(0, 0); }
-  34%, 66% { transform: translate(calc(-100% - 6px), 0); }
-  88%, 100% { transform: translate(0, 0); }
-}
 @keyframes hs-blink { 50% { opacity: 0; } }
 @keyframes hs-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
 .hs-fill { animation: hs-fill 4s ease-in-out infinite; }
 .hs-fill-slow { animation: hs-fill 5.5s ease-in-out infinite; }
-.hs-swap-a { animation: hs-swap-a 4.2s ease-in-out infinite; }
-.hs-swap-b { animation: hs-swap-b 4.2s ease-in-out infinite; }
 .hs-blink { animation: hs-blink 1s steps(1) infinite; }
 .hs-pulse { animation: hs-pulse 1.4s ease-in-out infinite; }
+
+.app {
+  --bg: #161616;
+  --s2: #1f1f1f;
+  --s3: #2b2b2b;
+  --t1: #f5f5f5;
+  --t2: #a4a4a4;
+  --t3: #747474;
+  --b0: rgb(255 255 255 / 0.035);
+  --b1: rgb(255 255 255 / 0.06);
+  --b2: rgb(255 255 255 / 0.1);
+  --accent: #1b4ed8;
+  --busy: #f59e0b;
+  --wait: #3b82f6;
+  --ok: #10b981;
+  --err: #ef4444;
+  background: var(--bg);
+  color: var(--t1);
+  font-family: var(--font-app);
+  letter-spacing: 0;
+}
+
+@keyframes hs-spin { to { transform: rotate(360deg); } }
+@keyframes hs-sheen { from { left: 100%; } to { left: -60%; } }
+@keyframes hs-wait { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@keyframes hs-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+@keyframes hs-orbit {
+  0% { transform: translateX(3.5px) scale(1); opacity: 0.65; }
+  12.5% { transform: translateX(2.5px) scale(1.14); opacity: 0.9; }
+  25% { transform: translateX(0) scale(1.2); opacity: 1; z-index: 1; }
+  37.5% { transform: translateX(-2.5px) scale(1.14); opacity: 0.9; }
+  50% { transform: translateX(-3.5px) scale(1); opacity: 0.65; }
+  62.5% { transform: translateX(-2.5px) scale(0.86); opacity: 0.4; }
+  75% { transform: translateX(0) scale(0.8); opacity: 0.3; z-index: 0; }
+  87.5% { transform: translateX(2.5px) scale(0.86); opacity: 0.4; }
+  100% { transform: translateX(3.5px) scale(1); opacity: 0.65; }
+}
+
+.hs-spin { animation: hs-spin 0.9s linear infinite; }
+.hs-sheen { animation: hs-sheen 2.6s linear infinite; }
+.hs-wait { animation: hs-wait 1s ease-in-out infinite; }
+.hs-breathe { animation: hs-breathe 1.8s ease-in-out infinite; }
+.hs-orbit { animation: hs-orbit 1.2s linear infinite; }
 
 /* ---------------------------------------------------------------- page background
    Three stacked layers, all non-interactive and behind everything:

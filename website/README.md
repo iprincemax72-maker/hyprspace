@@ -21,8 +21,9 @@ bun run build          # tsc -b && vite build, output goes to website/dist/
 
 - `src/site.ts` holds every outbound URL on the site: the repo, the releases page, and the
   Windows/macOS download links. Change them here, not inline in the components.
-- `src/components/site/` has the page sections plus the `AppShell` that recreates the desktop app's
-  titlebar and rail.
+- `src/components/site/` has the page sections. `app/` redraws the desktop app's window (title bar,
+  sidebar, a structured thread and the dock) from the app's own theme tokens, which live on the
+  `.app` class in `src/index.css`.
 - `src/components/brainless/` is the agent-terminal UI. These come from the **@brainless** shadcn
   registry (<https://brainless.swerdlow.dev>), configured in `components.json`:
 

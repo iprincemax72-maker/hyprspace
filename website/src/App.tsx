@@ -1,19 +1,19 @@
-import { BarChart3, ShieldCheck } from "lucide-react"
+import { BarChart3, MessagesSquare, ShieldCheck, SquareTerminal } from "lucide-react"
 
-import { ClaudePane, CodexPane, GrokPane } from "@/components/site/sessions"
-import { AppShell } from "@/components/site/app-shell"
+import { AppWindow } from "@/components/site/app/window"
+import { TerminalThread } from "@/components/site/app/terminal"
 import { Nav } from "@/components/site/nav"
 import { DownloadCta, Install, ReleasePill } from "@/components/site/showcase"
 import {
-  DiffVignette,
-  EditorVignette,
-  PaletteVignette,
   ComposerVignette,
-  SwapVignette,
-  TreeVignette,
+  EditorVignette,
+  GitVignette,
+  PaletteVignette,
+  PhoneVignette,
+  ThreadsVignette,
   UsageVignette,
+  WorktreeVignette,
 } from "@/components/site/vignettes"
-import { Pane } from "@/components/site/pane"
 import {
   AppIcon,
   Eyebrow,
@@ -22,64 +22,61 @@ import {
   Section,
   Wrap,
 } from "@/components/site/primitives"
-import { RELEASES, REPO } from "@/site"
+import { DOWNLOAD_ANDROID, RELEASES, REPO } from "@/site"
 
-import claudeIcon from "@/assets/brand/claude.svg"
-import openaiIcon from "@/assets/brand/openai.svg"
-import opencodeIcon from "@/assets/brand/opencode.svg"
-import grokIcon from "@/assets/brand/grok.svg"
-
-const providers = [
-  { icon: claudeIcon, name: "Claude" },
-  { icon: openaiIcon, name: "Codex" },
-  { icon: opencodeIcon, name: "OpenCode" },
-  { icon: grokIcon, name: "Grok" },
-]
 
 const bento = [
   {
     span: "lg:col-span-3",
-    visual: <TreeVignette />,
-    title: "Live agent tree",
-    body: "Every agent, what it's doing, and the sub-agents it spawned.",
+    visual: <ThreadsVignette />,
+    title: "Every thread in one list",
+    body: "What each agent is doing, which ones wait on you, and shelves for the ones you snoozed or settled.",
   },
   {
     span: "lg:col-span-3",
     visual: <UsageVignette />,
-    title: "Usage in the titlebar",
-    body: "Session and weekly limits, live from your account.",
+    title: "Your limits in the title bar",
+    body: "Session and weekly limits for Claude and Codex, read from your own account.",
   },
   {
     span: "lg:col-span-2",
     visual: <PaletteVignette />,
     title: "Command palette",
-    body: "Jump to any space, thread or file.",
+    body: "Jump to any thread, file or action with Ctrl K.",
   },
   {
     span: "lg:col-span-2",
-    visual: <DiffVignette />,
-    title: "Review and ship",
-    body: "Review every change, then commit, push, PR.",
+    visual: <GitVignette />,
+    title: "Review and commit",
+    body: "Tick the files, write the message, then commit and push from the dock.",
   },
   {
     span: "lg:col-span-2",
-    visual: <SwapVignette />,
-    title: "Tile and swap",
-    body: "Drag to rearrange, or drop into another space.",
+    visual: <WorktreeVignette />,
+    title: "A worktree per thread",
+    body: "Start a thread on its own branch, then merge it, open a pull request or remove it.",
   },
   {
-    span: "lg:col-span-3",
+    span: "lg:col-span-2",
+    visual: <PhoneVignette />,
+    title: "Your phone",
+    body: "Pair the Android app to follow threads, answer approvals and start new ones.",
+    link: ["Download the Android app", DOWNLOAD_ANDROID],
+  },
+  {
+    span: "lg:col-span-2",
     visual: <EditorVignette />,
-    title: "Built-in editor",
-    body: "Open, edit and save without leaving the window.",
+    title: "Files open in the app",
+    body: "Text files open ready to edit, and Ctrl+S saves. Images and videos open too.",
   },
   {
-    span: "lg:col-span-3",
+    span: "lg:col-span-2",
     visual: <ComposerVignette />,
     title: "Start from the composer",
-    body: "Pick the model and effort, paste an image, press Enter.",
+    body: "Pick the agent, model and effort, attach files, press Enter.",
   },
 ]
+
 function Hero() {
   return (
     <section className="pt-20 md:pt-24">
@@ -93,42 +90,18 @@ function Hero() {
         </h1>
 
         <p className="mx-auto mt-6 max-w-[56ch] text-[clamp(16px,1.7vw,19px)] leading-relaxed text-zinc-400">
-          Mission control for Claude, Codex, Grok and OpenCode. Your own CLIs, your own subscriptions.
+          A desktop workspace for Claude Code and Codex. Your own CLIs, your own subscriptions.
         </p>
 
         <div className="mt-9">
           <DownloadCta />
         </div>
 
-        <div className="mt-9 flex flex-wrap items-center justify-center gap-2">
-          {providers.map((p) => (
-            <span
-              key={p.name}
-              className="inline-flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-1.5 font-mono text-[12px] text-zinc-400"
-            >
-              <img src={p.icon} alt="" className="size-[15px]" />
-              {p.name.toLowerCase()}
-            </span>
-          ))}
-        </div>
       </Wrap>
 
-      {/* the money shot: the actual app window, three real agent UIs tiled inside it */}
       <Wrap className="mt-16 max-w-[1300px]">
         <Reveal>
-          <AppShell>
-            <div className="grid gap-2 lg:grid-cols-3">
-              <Pane icon={claudeIcon} name="Claude" folder="acme-app" status="running">
-                <ClaudePane />
-              </Pane>
-              <Pane icon={openaiIcon} name="Codex" folder="acme-app" status="running">
-                <CodexPane />
-              </Pane>
-              <Pane icon={grokIcon} name="Grok" folder="acme-app" status="done">
-                <GrokPane />
-              </Pane>
-            </div>
-          </AppShell>
+          <AppWindow />
         </Reveal>
       </Wrap>
     </section>
@@ -171,14 +144,14 @@ function Subscription() {
   return (
     <Section id="subscription">
       <Wrap>
-        <div className="grid items-center gap-16 lg:grid-cols-[0.92fr_1.08fr]">
+        <div className="grid grid-cols-[minmax(0,1fr)] items-center gap-16 lg:grid-cols-[0.92fr_1.08fr]">
           <Reveal>
             <Eyebrow>Your subscription</Eyebrow>
             <h2 className="mt-3.5 max-w-[16ch] text-[clamp(28px,3.6vw,42px)] font-medium">
               Your CLI. Your quota. No middleman.
             </h2>
             <p className="mt-4.5 max-w-[46ch] text-[16.5px] text-zinc-400">
-              Every pane runs the CLI you already signed into. Nothing stored, nothing resold.
+              Every thread runs the CLI you already signed into. Nothing stored, nothing resold.
             </p>
             <div className="mt-6">
               <Point icon={<ShieldCheck />} title="Nothing resold">
@@ -213,9 +186,42 @@ function Subscription() {
                 <span className="text-zinc-500"># OpenAI Codex</span>
                 {"\n\n"}
                 <span className="text-zinc-500">
-                  # then open HyprSpace and tile them. that&apos;s it.
+                  # then open HyprSpace and start a thread. that&apos;s it.
                 </span>
               </pre>
+            </div>
+          </Reveal>
+        </div>
+      </Wrap>
+    </Section>
+  )
+}
+
+function TwoWays() {
+  return (
+    <Section id="threads">
+      <Wrap>
+        <div className="grid items-center gap-16 lg:grid-cols-[1.08fr_0.92fr]">
+          <Reveal className="order-2 min-w-0 lg:order-1">
+            <TerminalThread />
+          </Reveal>
+          <Reveal className="order-1 lg:order-2" delay={80}>
+            <Eyebrow>Two ways to run</Eyebrow>
+            <h2 className="mt-3.5 max-w-[16ch] text-[clamp(28px,3.6vw,42px)] font-medium">
+              A chat, or the real CLI.
+            </h2>
+            <p className="mt-4.5 max-w-[46ch] text-[16.5px] text-zinc-400">
+              Each thread runs one way or the other. Pick it in the composer.
+            </p>
+            <div className="mt-6">
+              <Point icon={<MessagesSquare />} title="Structured">
+                HyprSpace drives the CLI over its machine protocol and draws the run as a chat. Tool
+                calls fold into one line, and each run ends with the files it changed and an undo.
+              </Point>
+              <Point icon={<SquareTerminal />} title="Terminal">
+                The CLI itself in a real terminal, with its own screen and shortcuts. The sidebar still
+                follows what it is doing.
+              </Point>
             </div>
           </Reveal>
         </div>
@@ -238,7 +244,7 @@ function Workspace() {
         {/* bento: every card carries a live miniature of the thing it describes, not an icon */}
         <Reveal className="mt-14" delay={80}>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6">
-            {bento.map(({ span, visual, title, body }) => (
+            {bento.map(({ span, visual, title, body, link }) => (
               <div
                 key={title}
                 className={`flex flex-col overflow-hidden rounded-[13px] border border-white/[0.08] bg-[#0c0c0e] ${span}`}
@@ -247,6 +253,14 @@ function Workspace() {
                 <div className="px-4 pt-3.5 pb-4">
                   <h3 className="text-[15px] font-semibold">{title}</h3>
                   <p className="mt-1.5 text-[13px] leading-[1.55] text-zinc-400">{body}</p>
+                  {link && (
+                    <a
+                      href={link[1]}
+                      className="mt-2.5 inline-flex items-center gap-1.5 text-[13px] font-medium text-zinc-100 underline-offset-[3px] hover:underline"
+                    >
+                      {link[0]} →
+                    </a>
+                  )}
                 </div>
               </div>
             ))}
@@ -292,6 +306,7 @@ function Footer() {
             {[
               ["Source", REPO],
               ["Releases", RELEASES],
+              ["Android app", DOWNLOAD_ANDROID],
             ].map(([label, href]) => (
               <a
                 key={label}
@@ -333,6 +348,7 @@ export default function App() {
         <Hero />
         <InstallBand />
         <Subscription />
+        <TwoWays />
         <Workspace />
         <Closing />
       </main>

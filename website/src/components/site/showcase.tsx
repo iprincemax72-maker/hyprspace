@@ -21,7 +21,7 @@ function fetchRelease(): Promise<Release | null> {
         const first = String(d.body ?? "")
           .split("\n")
           .map((l: string) => l.replace(/^[-*]\s*/, "").trim())
-          .find(Boolean)
+          .find((l: string) => l && !l.startsWith("#"))
       const note = first ? first.split(/[—.:]/)[0].trim() : ""
       return {
         tag: d.tag_name as string,

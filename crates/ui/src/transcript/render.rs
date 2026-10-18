@@ -1405,6 +1405,15 @@ fn tray(v: &TranscriptView, cx: &mut Context<TranscriptView>) -> Option<AnyEleme
                 text,
             )
             .child(
+                small(widgets::button(("queue-edit", ix), "Edit"))
+                    .tooltip(widgets::tip(
+                        "Take it out of the queue and back into the box",
+                    ))
+                    .on_click(cx.listener(move |v, _: &ClickEvent, window, cx| {
+                        v.edit_queued(ix, window, cx)
+                    })),
+            )
+            .child(
                 small(widgets::button(
                     ("queue-steer", ix),
                     if held { "Send" } else { "Steer" },

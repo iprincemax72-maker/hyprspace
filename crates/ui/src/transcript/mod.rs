@@ -407,6 +407,22 @@ impl TranscriptView {
         }
     }
 
+    pub(super) fn edit_queued(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if ix >= self.queue.len() {
+            return;
+        }
+        let prompt = self.queue.remove(ix);
+        self.queue_changed(cx);
+        let draft = self.input.read(cx).text().trim().to_string();
+        let text = match draft.is_empty() {
+            true => prompt.text,
+            false => format!("{}\n\n{draft}", prompt.text),
+        };
+        self.images.splice(0..0, prompt.images);
+        self.input.update(cx, |i, cx| i.set_text(text, cx));
+        window.focus(&self.input.focus_handle(cx), cx);
+    }
+
     pub(super) fn unqueue(&mut self, ix: usize, cx: &mut Context<Self>) {
         if ix < self.queue.len() {
             self.queue.remove(ix);
@@ -491,7 +507,6 @@ impl TranscriptView {
         question: usize,
         option: usize,
         multi: bool,
-        advance: bool,
         cx: &mut Context<Self>,
     ) {
         let picks = self.picks.entry(request.to_string()).or_default();
@@ -503,20 +518,6 @@ impl TranscriptView {
             (true, true) => chosen.retain(|&o| o != option),
             (true, false) => chosen.push(option),
             (false, _) => *chosen = vec![option],
-        }
-        if advance {
-            let request = request.to_string();
-            cx.spawn(async move |this, cx| {
-                cx.background_executor()
-                    .timer(Duration::from_millis(200))
-                    .await;
-                let _ = this.update(cx, |v, cx| {
-                    if v.steps.get(&request).copied().unwrap_or(0) == question {
-                        v.show_question(&request, question + 1, cx);
-                    }
-                });
-            })
-            .detach();
         }
         cx.notify();
     }

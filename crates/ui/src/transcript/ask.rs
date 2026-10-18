@@ -277,7 +277,6 @@ fn asking(
             let on = chosen.contains(&oi);
             let request = request.to_string();
             let multi = q.multi;
-            let advance = !multi && !last;
             div()
                 .id(SharedString::from(format!("q-{request}-{step}-{oi}")))
                 .flex()
@@ -322,7 +321,7 @@ fn asking(
                         .when(on, |d| d.child(icon("check", 14., colors::accent()))),
                 )
                 .on_click(cx.listener(move |v, _: &ClickEvent, _, cx| {
-                    v.pick_option(&request, step, oi, multi, advance, cx)
+                    v.pick_option(&request, step, oi, multi, cx)
                 }))
         }),
     ));

@@ -8,13 +8,14 @@
 use gpui::{
     AnyElement, App, ClickEvent, Context, DragMoveEvent, FontWeight, Hsla, IntoElement,
     MouseButton, Pixels, SharedString, Transformation, canvas, div, linear_color_stop,
-    linear_gradient, percentage, prelude::*, px, relative,
+    linear_gradient, percentage, prelude::*, relative,
 };
 use hyprspace_proto::git::WorktreeAction;
 use hyprspace_proto::{Agent, Pane, Thread, ThreadKind};
 
 use super::card::RowCard;
 use crate::workbench::PaneDrag;
+use crate::zoom::px;
 use hyprspace_theme::MONO;
 
 use super::row_hover;
@@ -393,6 +394,13 @@ impl Root {
             "Rename thread",
             Action::Rename(Rename::Thread(id)),
         ));
+        if let Some(label) = self.switch_label(t) {
+            menu.push(MenuEntry::Item {
+                label: label.into(),
+                hint: self.switch_wait(id).map(|s| format!("in {s}s").into()),
+                action: Action::Switch(id),
+            });
+        }
         let mirrored = space.is_some_and(|s| s.machine.is_some());
         if let Some(w) = t.worktree.as_ref().filter(|_| !mirrored) {
             menu.push(MenuEntry::Sub {

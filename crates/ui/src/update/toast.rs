@@ -4,13 +4,14 @@
 
 use gpui::{
     AnyElement, App, ClickEvent, Div, Entity, FontWeight, MouseButton, Transformation, div,
-    percentage, prelude::*, px, relative,
+    percentage, prelude::*, relative,
 };
 use hyprspace_proto::update::Step;
 
 use super::{Phase, Swipe, Updater, VERSION, running, step_text};
 use crate::assets::icon;
 use crate::pace::Looping;
+use crate::zoom::px;
 use crate::{colors, widgets};
 
 /// The cards for the window's bottom right corner, or None when there is nothing to show.
@@ -88,7 +89,7 @@ fn swipeable(updater: &Entity<Updater>, news: bool, card: AnyElement, cx: &App) 
             moved.update(cx, |u, cx| {
                 if let Some(s) = u.swipe.as_mut().filter(|s| s.news == news) {
                     let x: f32 = e.position.x.into();
-                    s.dx = (x - s.from).max(0.);
+                    s.dx = ((x - s.from) / crate::zoom::zoom()).max(0.);
                     cx.notify();
                 }
             })

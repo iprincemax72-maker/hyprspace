@@ -7,17 +7,17 @@ use std::f32::consts::{PI, TAU};
 
 use gpui::{
     AnyElement, ClickEvent, Context, FontWeight, Hsla, IntoElement, PathBuilder, Render, Window,
-    canvas, div, fill, point, prelude::*, px, size,
+    canvas, div, fill, point, prelude::*, size,
 };
 use hyprspace_proto::Agent;
-use hyprspace_proto::usage::LiveExtra;
 
-use super::limits::clock;
-use super::model::{Block, Tone, Win};
-use super::page::{note, rows};
+use super::limits::{Line, lines};
+use super::model::{Block, Tone};
+use super::page::{bar, note, rows};
 use super::{Limits, brand};
 use crate::assets::mark;
 use crate::time::now_ms;
+use crate::zoom::px;
 use crate::{colors, widgets};
 
 pub(super) fn tone_color(tone: Tone) -> Option<Hsla> {
@@ -30,10 +30,7 @@ pub(super) fn tone_color(tone: Tone) -> Option<Hsla> {
 
 /// A 16px ring, filled clockwise from the top to `pct`.
 pub(crate) fn ring(pct: f32, color: Hsla) -> impl IntoElement {
-    ring_sized(pct, color, 16.)
-}
-
-fn ring_sized(pct: f32, color: Hsla, side: f32) -> impl IntoElement {
+    let side = 16.;
     let track = colors::ink(0.22);
     canvas(
         |_, _, _| {},
@@ -234,13 +231,8 @@ impl Limits {
 /// The popover's width.
 const WIDTH: f32 = 280.;
 
-/// One provider's windows, a row each. The strip above names the provider and its plan.
 fn section(b: &Block, stale: bool, now: i64) -> AnyElement {
-    let tint = brand(b.agent.cli());
-    let mut items: Vec<AnyElement> = b.windows.iter().map(|w| window_row(w, tint, now)).collect();
-    if let Some(x) = &b.extra {
-        items.push(extra(x, tint));
-    }
+    let items = lines(b, now).iter().map(line).collect();
     let said = b
         .note
         .clone()
@@ -253,94 +245,45 @@ fn section(b: &Block, stale: bool, now: i64) -> AnyElement {
         .into_any_element()
 }
 
-/// A window on one line: a ring of what is used, its name and when it resets, what is left.
-fn window_row(w: &Win, tint: Hsla, now: i64) -> AnyElement {
-    let gone = w.expired(now);
-    let used = w.pct.round() as i64;
-    let when = match w.resets_at {
-        _ if gone => "Resets on the next turn".to_string(),
-        Some(r) => format!("Resets {} \u{b7} in {}", clock(r, now), w.reset_label(now)),
-        None => format!("{used}% used"),
-    };
-    let left = (!gone).then(|| format!("{}%", 100 - used));
-    line(
-        ring_sized(
-            if gone { 0. } else { used as f32 },
-            tone_color(w.tone(now)).unwrap_or(tint),
-            22.,
-        ),
-        &w.label,
-        when,
-        left.unwrap_or_else(|| "-".into()),
-        "left",
-    )
-}
-
-fn extra(x: &LiveExtra, tint: Hsla) -> AnyElement {
-    let cur = if x.currency.as_deref() == Some("USD") {
-        "$"
-    } else {
-        ""
-    };
-    line(
-        ring_sized(x.percent as f32, tint, 22.),
-        "Extra usage",
-        format!("This month \u{b7} {cur}{:.2} limit", x.limit),
-        format!("{cur}{:.2}", x.used),
-        "used",
-    )
-}
-
-fn line(mark: impl IntoElement, name: &str, sub: String, value: String, unit: &str) -> AnyElement {
+fn line(l: &Line) -> AnyElement {
     div()
         .flex()
-        .items_center()
-        .gap(px(12.))
+        .flex_col()
+        .gap(px(6.))
         .px(px(14.))
         .py(px(10.))
-        .child(mark)
         .child(
             div()
-                .flex_1()
-                .min_w_0()
                 .flex()
-                .flex_col()
-                .gap(px(1.))
+                .items_center()
+                .gap(px(8.))
                 .child(
                     div()
+                        .flex_1()
+                        .min_w_0()
                         .truncate()
                         .text_size(px(13.))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(colors::text1())
-                        .child(name.to_string()),
+                        .child(l.label.clone()),
                 )
                 .child(
                     div()
-                        .truncate()
-                        .text_size(px(11.5))
-                        .text_color(colors::text3())
-                        .child(sub),
+                        .flex_none()
+                        .text_size(px(12.))
+                        .text_color(colors::text2())
+                        .child(l.value.clone()),
                 ),
         )
-        .child(
-            div()
-                .flex_none()
-                .flex()
-                .flex_col()
-                .items_end()
-                .child(
-                    div()
-                        .text_size(px(15.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(colors::text1())
-                        .child(value),
-                )
-                .child(
-                    div()
-                        .text_size(px(10.5))
-                        .text_color(colors::text3())
-                        .child(unit.to_string()),
-                ),
-        )
+        .child(bar(l.pct, l.fill))
+        .when(!l.sub.is_empty(), |d| {
+            d.child(
+                div()
+                    .truncate()
+                    .text_size(px(11.5))
+                    .text_color(colors::text3())
+                    .child(l.sub.clone()),
+            )
+        })
         .into_any_element()
 }

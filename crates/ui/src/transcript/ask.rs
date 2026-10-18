@@ -1,5 +1,5 @@
 use gpui::{
-    AnyElement, ClickEvent, Context, FontWeight, IntoElement, SharedString, div, prelude::*, px,
+    AnyElement, ClickEvent, Context, FontWeight, IntoElement, SharedString, div, prelude::*,
     relative,
 };
 use hyprspace_proto::{Answer, Tool};
@@ -8,6 +8,7 @@ use serde_json::Value;
 use super::TranscriptView;
 use super::model::Item;
 use crate::assets::icon;
+use crate::zoom::px;
 use crate::{colors, markdown, widgets};
 
 pub const QUESTION: &str = "AskUserQuestion";
@@ -443,7 +444,7 @@ pub fn plan_card(
                 .text_size(px(13.5))
                 .line_height(relative(1.6))
                 .text_color(colors::text1())
-                .child(markdown::render(&blocks, &format!("plan{ix}"))),
+                .child(markdown::render(&blocks, &format!("plan{ix}"), &[])),
         );
     if let (true, Some(request)) = (pending, request) {
         let approve = {

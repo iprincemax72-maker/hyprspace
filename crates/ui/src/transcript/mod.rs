@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use gpui::{
     AppContext, Context, Entity, EventEmitter, ExternalPaths, Focusable, IntoElement,
-    ListAlignment, ListState, PathPromptOptions, Render, Subscription, Task, Window, px,
+    ListAlignment, ListState, PathPromptOptions, Render, Subscription, Task, Window,
 };
 use hyprspace_proto::agents::AgentCatalog;
 use hyprspace_proto::{Answer, Client, Command, Entry, Launch, Prompt, RunEvent, SessionId};
@@ -28,6 +28,7 @@ use hyprspace_proto::{Answer, Client, Command, Entry, Launch, Prompt, RunEvent, 
 use crate::attach;
 use crate::composer::model_menu::{self, Anchor, Choice, ModelMenu, Spec};
 use crate::input::{InputEvent, TextInput};
+use crate::zoom::px;
 pub use model::Status;
 use model::{Item, Transcript};
 
@@ -43,6 +44,8 @@ pub enum TranscriptEvent {
     Queue(Vec<Prompt>),
     Limited(Option<u64>),
     ResumeAt(Option<u64>),
+    Draft(String),
+    SwitchFailed,
     ShowMedia(PathBuf),
     Commands(hyprspace_proto::Agent, Vec<String>),
     Open(hyprspace_proto::Pane),
@@ -64,6 +67,10 @@ pub struct TranscriptView {
     queued: Option<Prompt>,
     queue: Vec<Prompt>,
     resume_at: Option<u64>,
+    pub(super) cut: Option<usize>,
+    draft: Option<Task<()>>,
+    probing: bool,
+    after: Option<String>,
     input: Entity<TextInput>,
     images: Vec<PathBuf>,
     saving: usize,
@@ -76,7 +83,7 @@ pub struct TranscriptView {
     catalog: Option<AgentCatalog>,
     menu: Option<ModelMenu>,
     want_menu: Option<bool>,
-    pending: Option<bool>,
+    pending: bool,
     /// Where the model chip sits, for its menu to open from.
     anchor: Anchor,
     effort_anchor: Anchor,
@@ -99,6 +106,8 @@ pub struct TranscriptView {
     follow: motion::Follow,
     reveal: Option<motion::Reveal>,
     partial: Option<(usize, Vec<crate::markdown::Block>)>,
+    stream: (usize, crate::markdown::Stream),
+    pub(super) fade: crate::markdown::Fade,
     fresh: usize,
     seen: usize,
     born: HashMap<usize, Instant>,
@@ -124,7 +133,11 @@ impl TranscriptView {
         client: Client,
         cx: &mut Context<Self>,
     ) -> Self {
-        let input = cx.new(|cx| TextInput::new(IDLE_HINT, true, cx));
+        let input = cx.new(|cx| {
+            let mut input = TextInput::new(IDLE_HINT, true, cx);
+            input.set_text(thread.draft.clone(), cx);
+            input
+        });
         let sub = cx.subscribe(&input, |this, _, event: &InputEvent, cx| match event {
             InputEvent::Submit => this.submit(cx),
             InputEvent::Cancel => this.interrupt(cx),
@@ -140,6 +153,7 @@ impl TranscriptView {
                 })
             }
             InputEvent::Changed => {
+                this.keep_draft(cx);
                 this.refresh_suggest(cx);
                 let empty = this.input.read(cx).text().is_empty();
                 if empty != this.empty {
@@ -161,6 +175,10 @@ impl TranscriptView {
             queued: None,
             queue: thread.queue.clone(),
             resume_at: thread.resume_at,
+            cut: None,
+            draft: None,
+            probing: false,
+            after: None,
             input,
             images: Vec::new(),
             saving: 0,
@@ -173,11 +191,11 @@ impl TranscriptView {
             catalog: None,
             menu: None,
             want_menu: None,
-            pending: None,
+            pending: false,
             anchor: Anchor::default(),
             effort_anchor: Anchor::default(),
             open_runs: HashSet::new(),
-            empty: true,
+            empty: thread.draft.is_empty(),
             branch,
             repicked: false,
             status: Status::Idle,
@@ -191,6 +209,8 @@ impl TranscriptView {
             follow: Default::default(),
             reveal: None,
             partial: None,
+            stream: Default::default(),
+            fade: Default::default(),
             fresh: 0,
             seen: 0,
             born: HashMap::new(),
@@ -252,6 +272,44 @@ impl TranscriptView {
     pub fn continue_now(&mut self, cx: &mut Context<Self>) {
         self.cancel_resume(cx);
         self.offer(Prompt::text(CONTINUE), cx);
+    }
+
+    pub fn open_switched(&mut self, cx: &mut Context<Self>) {
+        self.probing = true;
+        self.after = (self.launch.agent != hyprspace_proto::Agent::Claude).then(|| {
+            format!(
+                "Messages sent in the terminal aren't shown here. {} still has them.",
+                self.launch.agent.name()
+            )
+        });
+        self.open = true;
+        self.client.send(Command::OpenStructured {
+            id: self.id,
+            launch: self.launch.clone(),
+            prompt: None,
+            journal: Some(self.journal.clone()),
+            delegate: self.delegate,
+        });
+        cx.notify();
+    }
+
+    pub(super) fn resume_cut(&mut self, cx: &mut Context<Self>) {
+        self.offer(Prompt::text(RESUME), cx);
+    }
+
+    fn keep_draft(&mut self, cx: &mut Context<Self>) {
+        let text = self.input.read(cx).text().to_string();
+        if text.is_empty() {
+            self.draft = None;
+            cx.emit(TranscriptEvent::Draft(text));
+            return;
+        }
+        self.draft = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(600))
+                .await;
+            let _ = this.update(cx, |_, cx| cx.emit(TranscriptEvent::Draft(text)));
+        }));
     }
 
     pub(super) fn cancel_resume(&mut self, cx: &mut Context<Self>) {
@@ -371,6 +429,7 @@ impl TranscriptView {
 
     fn send(&mut self, prompt: Prompt, cx: &mut Context<Self>) {
         self.cancel_resume(cx);
+        self.cut = None;
         self.model.prompt(&prompt);
         if self.remote {
             self.echoed.push_back(prompt.text.clone());
@@ -493,11 +552,6 @@ impl TranscriptView {
         if model == self.launch.model {
             return;
         }
-        let before = (
-            self.launch.model.clone(),
-            self.launch.effort.clone(),
-            self.launch.fast,
-        );
         self.launch.model = model;
         self.repicked = true;
         let id = self.launch.model.clone().unwrap_or_default();
@@ -512,17 +566,7 @@ impl TranscriptView {
             }
         }
         let name = self.model_label();
-        let quick = match self.launch.agent {
-            hyprspace_proto::Agent::Codex => true,
-            hyprspace_proto::Agent::Claude => {
-                let long = |m: &Option<String>| m.as_deref().is_some_and(crate::models::is_long);
-                !long(&before.0)
-                    && !long(&self.launch.model)
-                    && before.1 == self.launch.effort
-                    && before.2 == self.launch.fast
-            }
-        };
-        self.change(format!("Model set to {name}."), quick, cx);
+        self.change(format!("Model set to {name}."), cx);
     }
 
     fn pick_long(&mut self, long: bool, cx: &mut Context<Self>) {
@@ -535,7 +579,7 @@ impl TranscriptView {
         }
         self.launch.model = Some(model);
         let size = if long { "1M" } else { "standard" };
-        self.change(format!("Context window set to {size}."), false, cx);
+        self.change(format!("Context window set to {size}."), cx);
     }
 
     fn pick_fast(&mut self, fast: bool, cx: &mut Context<Self>) {
@@ -544,7 +588,7 @@ impl TranscriptView {
         }
         self.launch.fast = fast;
         let state = if fast { "on" } else { "off" };
-        self.change(format!("Fast mode {state}."), false, cx);
+        self.change(format!("Fast mode {state}."), cx);
     }
 
     fn pick_effort(&mut self, effort: String, cx: &mut Context<Self>) {
@@ -554,8 +598,7 @@ impl TranscriptView {
         }
         self.launch.effort = effort;
         let name = crate::composer::effort_label(self.launch.effort.as_deref().unwrap_or_default());
-        let quick = self.launch.agent == hyprspace_proto::Agent::Codex;
-        self.change(format!("Effort set to {name}."), quick, cx);
+        self.change(format!("Effort set to {name}."), cx);
     }
 
     /// After a model or effort change: the next prompt starts a session with it, resuming this
@@ -570,24 +613,21 @@ impl TranscriptView {
             cx.notify();
             return;
         }
-        let bypass =
-            [self.launch.permission, permission].contains(&hyprspace_proto::Permission::Bypass);
         self.launch.permission = permission;
         let name = crate::composer::pickers::permission_label(permission);
-        let quick = self.launch.agent == hyprspace_proto::Agent::Codex || !bypass;
-        self.change(format!("Permission set to {name}."), quick, cx);
+        self.change(format!("Permission set to {name}."), cx);
     }
 
-    fn change(&mut self, what: String, quick: bool, cx: &mut Context<Self>) {
+    fn change(&mut self, what: String, cx: &mut Context<Self>) {
         if self.model.running() {
-            self.pending = Some(self.pending.unwrap_or(true) && quick);
+            self.pending = true;
             self.model
                 .note(format!("{what} It applies when this run ends."));
             cx.emit(TranscriptEvent::Launch(self.launch.clone()));
             cx.notify();
             return;
         }
-        if quick && self.open && !self.remote && !self.model.running() {
+        if self.open && !self.remote {
             self.client.send(Command::Configure {
                 id: self.id,
                 launch: self.launch.clone(),
@@ -596,7 +636,10 @@ impl TranscriptView {
             cx.emit(TranscriptEvent::Launch(self.launch.clone()));
             cx.notify();
         } else {
-            self.relaunch(what, cx);
+            self.model
+                .note(format!("{what} It applies from your next message."));
+            cx.emit(TranscriptEvent::Launch(self.launch.clone()));
+            cx.notify();
         }
     }
 
@@ -653,32 +696,12 @@ impl TranscriptView {
     }
 
     fn apply_pending(&mut self) {
-        let Some(quick) = self.pending.take() else {
-            return;
-        };
-        if !self.open || self.remote {
-            return;
-        }
-        if quick {
+        if std::mem::take(&mut self.pending) && self.open && !self.remote {
             self.client.send(Command::Configure {
                 id: self.id,
                 launch: self.launch.clone(),
             });
-        } else {
-            self.client.send(Command::Close { id: self.id });
-            self.open = false;
         }
-    }
-
-    fn relaunch(&mut self, what: String, cx: &mut Context<Self>) {
-        if self.open && !self.model.running() && !self.remote {
-            self.client.send(Command::Close { id: self.id });
-            self.open = false;
-        }
-        self.model
-            .note(format!("{what} It applies from your next message."));
-        cx.emit(TranscriptEvent::Launch(self.launch.clone()));
-        cx.notify();
     }
 
     /// What the model chip says: the picked model, or the one the CLI says it runs, by its
@@ -693,6 +716,13 @@ impl TranscriptView {
     }
 
     pub fn apply(&mut self, event: RunEvent, cx: &mut Context<Self>) {
+        match &event {
+            RunEvent::Failed { .. } if std::mem::take(&mut self.probing) => {
+                cx.emit(TranscriptEvent::SwitchFailed)
+            }
+            RunEvent::Started { .. } => self.probing = false,
+            _ => {}
+        }
         if let RunEvent::Commands { names } = &event {
             crate::suggest::set_commands(self.launch.agent, names.clone(), cx);
             cx.emit(TranscriptEvent::Commands(self.launch.agent, names.clone()));
@@ -752,6 +782,9 @@ impl TranscriptView {
 
     /// The engine could not start or reach the session.
     pub fn fail(&mut self, message: String, cx: &mut Context<Self>) {
+        if std::mem::take(&mut self.probing) {
+            cx.emit(TranscriptEvent::SwitchFailed);
+        }
         self.open = false;
         self.model.fail(message);
         self.follow.down(&self.list);
@@ -769,6 +802,7 @@ impl TranscriptView {
             self.list.reset(0);
             self.reveal = None;
             self.partial = None;
+            self.fade = Default::default();
             self.seen = 0;
             self.born.clear();
             self.echoed.clear();
@@ -790,7 +824,10 @@ impl TranscriptView {
             }
         }
         if !self.remote {
-            self.model.settle();
+            self.cut = self.model.settle();
+        }
+        if let Some(note) = self.after.take() {
+            self.model.note(note);
         }
         self.loading = false;
         self.fresh = self.model.items.len();
@@ -1056,6 +1093,7 @@ impl model_menu::Host for TranscriptView {
 
 const IDLE_HINT: &str = "Ask for anything";
 const CONTINUE: &str = "The usage limit has reset. Continue where you left off.";
+const RESUME: &str = "The app closed before your last run finished. Continue where you left off.";
 const RUNNING_HINT: &str = "Queue a message for when it finishes";
 
 impl Focusable for TranscriptView {
@@ -1066,7 +1104,6 @@ impl Focusable for TranscriptView {
 
 impl Render for TranscriptView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.model.parse();
         render::view(self, window, cx)
     }
 }

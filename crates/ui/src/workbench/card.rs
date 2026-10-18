@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use gpui::{
     AnyElement, ClickEvent, Context, FontWeight, IntoElement, KeyDownEvent, MouseButton, Window,
-    anchored, deferred, div, point, prelude::*, px,
+    anchored, deferred, div, point, prelude::*,
 };
 use hyprspace_proto::{Command, Pane};
 use hyprspace_theme::MONO;
@@ -17,6 +17,7 @@ use crate::assets::icon;
 use crate::colors;
 use crate::root::Root;
 use crate::widgets::tip;
+use crate::zoom::px;
 
 /// The card's margin from the window's edges, and its widest.
 const MARGIN: f32 = 48.;
@@ -76,7 +77,8 @@ impl Root {
         let counts = diff.then(|| viewer.read(cx).counts()).flatten();
         let unsaved = viewer.read(cx).dirty(cx);
         let size = window.viewport_size();
-        let (vw, vh) = (f32::from(size.width), f32::from(size.height));
+        let z = crate::zoom::zoom();
+        let (vw, vh) = (f32::from(size.width) / z, f32::from(size.height) / z);
         let scrim = colors::hsla(colors::theme().shadow);
 
         let mut actions: Vec<AnyElement> = Vec::new();

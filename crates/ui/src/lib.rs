@@ -30,6 +30,7 @@ mod usage;
 mod viewer;
 mod widgets;
 mod workbench;
+mod zoom;
 
 pub use assets::Assets;
 pub use root::Root;

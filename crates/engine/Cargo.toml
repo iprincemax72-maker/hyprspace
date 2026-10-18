@@ -38,6 +38,9 @@ flate2 = "1"
 # screen capture already builds this crate
 sysinfo = { version = "0.31", default-features = false, features = ["system"] }
 
+# a folder's git status is read again when its files change, not on a timer (watch.rs)
+notify = "8.2"
+
 [target.'cfg(windows)'.dependencies]
 # read the machine and user PATH back from the registry (env.rs)
 winreg = "0.55"

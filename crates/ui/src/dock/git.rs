@@ -5,7 +5,7 @@
 
 use gpui::{
     AnyElement, ClickEvent, Context, Entity, Focusable, FontWeight, IntoElement, Subscription,
-    Window, div, prelude::*, px,
+    Window, div, prelude::*,
 };
 use hyprspace_proto::folder::GitStatus;
 use hyprspace_proto::git::FileChange;
@@ -19,6 +19,7 @@ use crate::assets::icon;
 use crate::colors;
 use crate::input::{InputEvent, TextInput};
 use crate::widgets;
+use crate::zoom::px;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Busy {

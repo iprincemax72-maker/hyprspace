@@ -11,8 +11,8 @@
 use std::time::{Duration, Instant};
 
 use gpui::{
-    AnimationExt, AnyElement, ClickEvent, Context, FontWeight, IntoElement, Pixels, Point, Window,
-    div, prelude::*, px,
+    AnyElement, ClickEvent, Context, FontWeight, IntoElement, Pixels, Point, Window, div,
+    prelude::*,
 };
 use hyprspace_proto::phone::Ask;
 use hyprspace_proto::{Agent, Snooze, Thread, ThreadKind};
@@ -23,6 +23,7 @@ use crate::colors;
 use crate::time::{local, local_now, now_ms, presets, to_ms, wake_label, wake_short};
 use crate::transcript::Status;
 use crate::widgets;
+use crate::zoom::px;
 
 /// How long the toast offers Undo.
 const UNDO_FOR: Duration = Duration::from_secs(5);
@@ -443,58 +444,32 @@ impl Root {
             Some(s) => ("clock", format!("Snoozed until {}", self.wake_text(s))),
             None => ("archive", u.what.to_string()),
         };
-        let tint = colors::accent();
-        let bar = div()
-            .absolute()
-            .left_0()
-            .bottom_0()
-            .h(px(2.))
-            .bg(tint.opacity(0.7))
-            .with_animation(
-                ("undo-bar", u.serial),
-                gpui::Animation::new(UNDO_FOR),
-                move |d, t| d.w(gpui::relative(1. - t)),
-            );
         let toast = div()
             .id("undo-toast")
             .occlude()
-            .relative()
-            .overflow_hidden()
             .flex()
             .items_center()
             .gap(px(10.))
-            .min_w(px(300.))
-            .max_w(px(460.))
-            .pl(px(10.))
+            .max_w(px(440.))
+            .h(px(38.))
+            .pl(px(14.))
             .pr(px(6.))
-            .py(px(8.))
-            .rounded(px(12.))
-            .bg(colors::surface2())
+            .rounded(px(10.))
+            .bg(colors::surface3())
             .border_1()
-            .border_color(colors::border2())
+            .border_color(colors::border1())
             .shadow(colors::shadow())
-            .child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .justify_center()
-                    .size(px(26.))
-                    .rounded_full()
-                    .bg(tint.opacity(0.14))
-                    .child(icon(glyph, 13., tint)),
-            )
+            .text_size(px(13.))
+            .child(icon(glyph, 14., colors::text2()))
             .child(
                 div()
                     .flex()
                     .flex_1()
                     .min_w_0()
-                    .items_baseline()
                     .gap(px(6.))
                     .child(
                         div()
                             .flex_none()
-                            .text_size(px(13.))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(colors::text1())
                             .child(what),
@@ -503,35 +478,35 @@ impl Root {
                         div()
                             .min_w_0()
                             .truncate()
-                            .text_size(px(12.5))
                             .text_color(colors::text3())
                             .child(title),
                     ),
             )
+            .child(div().flex_none().w(px(1.)).h(px(16.)).bg(colors::border1()))
             .child(
                 div()
                     .id("undo")
                     .flex_none()
+                    .h(px(26.))
                     .px(px(10.))
-                    .py(px(4.))
-                    .rounded(px(7.))
-                    .text_size(px(12.5))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(tint)
+                    .flex()
+                    .items_center()
+                    .rounded(px(6.))
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(colors::text1())
                     .cursor_pointer()
-                    .hover(|s| s.bg(tint.opacity(0.12)))
+                    .hover(|s| s.bg(colors::ink(0.08)))
                     .child("Undo")
                     .on_click(cx.listener(|r, _: &ClickEvent, window, cx| r.undo(window, cx))),
             )
             .child(
-                widgets::icon_button("undo-close", "x", 24.).on_click(cx.listener(
+                widgets::icon_button("undo-close", "x", 26.).on_click(cx.listener(
                     |r, _: &ClickEvent, _, cx| {
                         r.undo = None;
                         cx.notify();
                     },
                 )),
-            )
-            .child(bar);
+            );
         let toast = crate::slide::ease_in(toast, ("undo-toast", u.serial), 180, |d, t| {
             d.opacity(t).mt(px(-8. * (1. - t)))
         });

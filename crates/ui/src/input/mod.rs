@@ -15,11 +15,13 @@ use gpui::{
     App, Bounds, ClipboardEntry, ClipboardItem, Context, CursorStyle, EventEmitter, FocusHandle,
     Focusable, Image, IntoElement, KeyBinding, MouseButton, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, Pixels, Point, Render, ScrollHandle, SharedString, Window, WrappedLine, actions,
-    div, point, prelude::*, px,
+    div, point, prelude::*,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
 use element::TextElement;
+
+use crate::zoom::px;
 
 actions!(
     text_input,

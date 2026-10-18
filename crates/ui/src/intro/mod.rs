@@ -10,12 +10,13 @@ use std::time::{Duration, Instant};
 
 use gpui::{
     AnyElement, ClickEvent, Context, FontWeight, IntoElement, Window, anchored, deferred, div,
-    point, prelude::*, px,
+    point, prelude::*,
 };
 use hyprspace_proto::Agent;
 
 use crate::assets::icon;
 use crate::root::Root;
+use crate::zoom::px;
 use crate::{colors, widgets};
 
 /// The exit, after the Tauri app's: the card sinks away while the backdrop closes in to a point
@@ -348,7 +349,8 @@ fn iris(elapsed: Duration, size: gpui::Size<gpui::Pixels>) -> AnyElement {
     } else {
         1. - (-2. * t + 2.).powi(3) / 2.
     };
-    let (w, h) = (f32::from(size.width), f32::from(size.height));
+    let z = crate::zoom::zoom();
+    let (w, h) = (f32::from(size.width) / z, f32::from(size.height) / z);
     let r = (w.hypot(h) / 2. + 2.) * (1. - t);
     div()
         .absolute()

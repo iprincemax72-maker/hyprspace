@@ -1,7 +1,7 @@
-// Settings, Usage, Limits: each plan's windows as how much is left, with when they reset.
+// Settings, Usage, Limits: each plan's windows as how much is used, with when they reset.
 
 use chrono::{Local, TimeZone};
-use gpui::{AnyElement, Div, FontWeight, Hsla, IntoElement, div, prelude::*, px, relative};
+use gpui::{AnyElement, FontWeight, Hsla, IntoElement, div, prelude::*};
 use hyprspace_proto::usage::LiveExtra;
 
 use super::meter::tone_color;
@@ -11,181 +11,126 @@ use super::{Limits, brand};
 use crate::assets::icon;
 use crate::colors;
 use crate::time::ago;
+use crate::zoom::px;
 
-/// When a window resets, as a clock time: "11:20 PM" today, "Fri 9:00 AM" further out.
-pub(super) fn clock(ms: i64, now: i64) -> String {
+fn resets(ms: i64, now: i64) -> String {
     let Some(t) = Local.timestamp_millis_opt(ms).single() else {
         return String::new();
     };
-    let time = t.format("%-I:%M %p").to_string();
+    let time = t.format("%-I:%M %p");
     if ms - now < 20 * 3_600_000 {
-        time
+        format!("Resets at {time}")
     } else {
-        format!("{} {time}", t.format("%a"))
+        format!("Resets {} {time}", t.format("%A"))
     }
 }
 
-/// The bar shows what is LEFT, in the agent's color with a firm edge where it ends.
-fn track(left: f32, tint: Hsla, used: Option<String>, chip: Option<String>) -> Div {
-    let edge = left > 0.0 && left < 100.0;
-    div()
-        .relative()
-        .h(px(34.))
-        .rounded(px(9.))
-        .bg(colors::ink(0.05))
-        .border_1()
-        .border_color(colors::ink(0.06))
-        .overflow_hidden()
-        .child(
-            div()
-                .absolute()
-                .top_0()
-                .bottom_0()
-                .left_0()
-                .w(relative(left.clamp(0.0, 100.0) / 100.0))
-                .bg(tint.opacity(0.3))
-                .when(edge, |d| d.border_r_2().border_color(tint)),
-        )
-        .children(used.map(|u| {
-            div()
-                .absolute()
-                .left(px(12.))
-                .top_0()
-                .bottom_0()
-                .flex()
-                .items_center()
-                .text_size(px(11.5))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(colors::text1())
-                .child(u)
-        }))
-        .children(chip.map(|c| {
-            div()
-                .absolute()
-                .right(px(6.))
-                .top_0()
-                .bottom_0()
-                .flex()
-                .items_center()
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(5.))
-                        .h(px(22.))
-                        .px(px(8.))
-                        .rounded(px(6.))
-                        .bg(colors::surface3())
-                        .border_1()
-                        .border_color(colors::border1())
-                        .text_size(px(11.))
-                        .text_color(colors::text2())
-                        .child(icon("rotate-cw", 10., colors::text2()))
-                        .child(c),
-                )
-        }))
+pub(super) struct Line {
+    pub label: String,
+    pub sub: String,
+    pub pct: f32,
+    pub fill: Hsla,
+    pub value: String,
 }
 
-/// The numbers beside the bar.
-fn lay(label: &str, number: Div, sub: String, bar: Div) -> AnyElement {
-    let label = div()
-        .text_size(px(12.5))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(colors::text2())
-        .child(label.to_string());
-    let sub = div()
-        .text_size(px(11.5))
-        .text_color(colors::text3())
-        .child(sub);
+impl Line {
+    fn window(w: &Win, tint: Hsla, now: i64) -> Self {
+        let gone = w.expired(now);
+        let used = w.pct.round() as i64;
+        Line {
+            label: w.label.clone(),
+            sub: match w.resets_at {
+                _ if gone => "Just reset".into(),
+                Some(r) => resets(r, now),
+                None => String::new(),
+            },
+            pct: if gone { 0. } else { used as f32 },
+            fill: tone_color(w.tone(now)).unwrap_or(tint),
+            value: if gone {
+                "-".into()
+            } else {
+                format!("{used}% used")
+            },
+        }
+    }
+
+    fn extra(x: &LiveExtra, tint: Hsla) -> Self {
+        let cur = if x.currency.as_deref() == Some("USD") {
+            "$"
+        } else {
+            ""
+        };
+        Line {
+            label: "Extra usage".into(),
+            sub: "This month".into(),
+            pct: x.percent as f32,
+            fill: tint,
+            value: format!("{cur}{:.2} of {cur}{:.2}", x.used, x.limit),
+        }
+    }
+}
+
+pub(super) fn lines(b: &Block, now: i64) -> Vec<Line> {
+    let tint = brand(b.agent.cli());
+    b.windows
+        .iter()
+        .map(|w| Line::window(w, tint, now))
+        .chain(b.extra.iter().map(|x| Line::extra(x, tint)))
+        .collect()
+}
+
+fn row(l: &Line) -> AnyElement {
     div()
         .flex()
         .items_center()
-        .gap(px(20.))
+        .gap(px(24.))
         .p(px(16.))
         .child(
             div()
                 .flex_none()
-                .w(px(170.))
+                .w(px(200.))
                 .flex()
                 .flex_col()
                 .gap(px(2.))
-                .child(label)
-                .child(number)
-                .child(sub),
+                .child(
+                    div()
+                        .text_size(px(13.))
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(colors::text1())
+                        .child(l.label.clone()),
+                )
+                .when(!l.sub.is_empty(), |d| {
+                    d.child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(colors::text3())
+                            .child(l.sub.clone()),
+                    )
+                }),
         )
-        .child(bar.flex_1())
+        .child(bar(l.pct, l.fill).flex_1())
+        .child(
+            div()
+                .flex_none()
+                .w(px(110.))
+                .flex()
+                .justify_end()
+                .text_size(px(12.5))
+                .text_color(colors::text2())
+                .child(l.value.clone()),
+        )
         .into_any_element()
-}
-
-/// A limit window: how much is left, the bar, and when it comes back.
-fn limit_row(w: &Win, tint: Hsla, now: i64) -> AnyElement {
-    let gone = w.expired(now);
-    let used = w.pct.round() as i64;
-    let left = 100 - used;
-    let tone = w.tone(now);
-    let (fill, figure) = match tone_color(tone) {
-        Some(c) => (c, c),
-        None => (tint, colors::text1()),
-    };
-    let sub = if gone {
-        "Window reset. Updates on the next turn.".to_string()
-    } else if w.resets_at.is_some() && used > 0 {
-        format!("+{used}% back in {}", w.reset_label(now))
-    } else if w.resets_at.is_some() {
-        format!("Full, resets in {}", w.reset_label(now))
-    } else {
-        format!("{used}% used")
-    };
-    let number = if gone {
-        div()
-            .text_size(px(26.))
-            .line_height(px(30.))
-            .text_color(colors::text3())
-            .child("-")
-    } else {
-        big(format!("{left}%"), "left", figure)
-    };
-    let bar = track(
-        if gone { 0.0 } else { left as f32 },
-        fill,
-        (!gone).then(|| format!("{used}% used")),
-        w.resets_at.filter(|_| !gone).map(|r| clock(r, now)),
-    );
-    lay(&w.label, number, sub, bar)
-}
-
-fn extra_row(x: &LiveExtra, tint: Hsla) -> AnyElement {
-    let cur = if x.currency.as_deref() == Some("USD") {
-        "$"
-    } else {
-        ""
-    };
-    let pct = x.percent.round() as i64;
-    lay(
-        "Extra usage",
-        big(
-            format!("{cur}{:.2}", x.used),
-            &format!("of {cur}{:.2}", x.limit),
-            colors::text1(),
-        ),
-        "This month".to_string(),
-        track(pct as f32, tint, Some(format!("{pct}% used")), None),
-    )
 }
 
 fn limit_card(b: &Block, note_text: Option<String>, now: i64) -> AnyElement {
     let id = b.agent.cli();
-    let tint = brand(id);
     let age = b
         .updated_at
         .map(|at| match ago(at as u64, now as u64).as_str() {
             "now" => "Updated just now".to_string(),
             a => format!("Updated {a} ago"),
         });
-    let mut items: Vec<AnyElement> = b.windows.iter().map(|w| limit_row(w, tint, now)).collect();
-    if let Some(x) = &b.extra {
-        items.push(extra_row(x, tint));
-    }
+    let items = lines(b, now).iter().map(row).collect();
     card(id, b.agent.name(), b.plan.clone(), age)
         .child(rows(items))
         .children(note_text.map(note))

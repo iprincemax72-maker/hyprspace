@@ -1,6 +1,6 @@
 use gpui::{
     AnyElement, AppContext, ClickEvent, Context, DragMoveEvent, Entity, Focusable, FontWeight,
-    IntoElement, SharedString, StyleRefinement, Subscription, Window, div, prelude::*, px,
+    IntoElement, SharedString, StyleRefinement, Subscription, Window, div, prelude::*,
 };
 use hyprspace_proto::{Command, SessionId, ThreadKind};
 use hyprspace_theme::MONO;
@@ -12,6 +12,7 @@ use crate::assets::icon;
 use crate::colors;
 use crate::root::{Root, View};
 use crate::terminal::{TerminalEvent, TerminalView};
+use crate::zoom::px;
 
 const MIN: f32 = 120.;
 const CHAT_MIN: f32 = 200.;
@@ -140,6 +141,25 @@ impl Root {
             }
             !d.shells.is_empty()
         });
+    }
+
+    pub(crate) fn show_terminals(&self, cx: &gpui::App) {
+        let on = match self.screen {
+            crate::root::Screen::Thread(id) => Some(id),
+            _ => None,
+        };
+        for (thread, view) in &self.views {
+            if let View::Terminal(v) = view {
+                v.read(cx).show(Some(*thread) == on);
+            }
+        }
+        for (thread, d) in &self.work.drawers {
+            for (ix, s) in d.shells.iter().enumerate() {
+                s.view
+                    .read(cx)
+                    .show(Some(*thread) == on && d.open && ix == d.active);
+            }
+        }
     }
 
     pub(crate) fn drawer_terminal(&self, id: SessionId) -> Option<&Entity<TerminalView>> {
@@ -318,8 +338,9 @@ impl Root {
             .on_drag_move(cx.listener(|r, e: &DragMoveEvent<DrawerDrag>, _, cx| {
                 let y: f32 = e.event.position.y.into();
                 let (top, bottom): (f32, f32) = (e.bounds.top().into(), e.bounds.bottom().into());
-                let most = (bottom - top - CHAT_MIN).max(MIN);
-                r.work.drawer_height = (bottom - y).clamp(MIN, most);
+                let z = crate::zoom::zoom();
+                let most = ((bottom - top) / z - CHAT_MIN).max(MIN);
+                r.work.drawer_height = ((bottom - y) / z).clamp(MIN, most);
                 cx.notify();
             }))
             .child(div().flex_1().min_h_0().child(chat))

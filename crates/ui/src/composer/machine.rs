@@ -3,11 +3,12 @@
 
 use gpui::{
     AnyElement, ClickEvent, Context, FontWeight, IntoElement, Pixels, Point, Window, div,
-    prelude::*, px,
+    prelude::*,
 };
 
 use super::{Composer, ComposerEvent};
 use crate::assets::icon;
+use crate::zoom::px;
 use crate::{colors, widgets};
 
 #[derive(Clone, PartialEq)]

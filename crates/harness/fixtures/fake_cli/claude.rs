@@ -61,7 +61,20 @@ pub fn run(args: &[String]) {
     let session = flag("--resume").unwrap_or_else(|| "fake-session".into());
     let model = flag("--model").unwrap_or_else(|| "claude-fake".into());
     let cwd = std::env::current_dir().unwrap_or_default();
+    let mut controls = Vec::new();
     while let Some(msg) = read() {
+        if msg["type"] == "control_request" {
+            let req = &msg["request"];
+            let response = if req["model"] == "nope" {
+                json!({ "subtype": "error", "request_id": msg["request_id"],
+                    "error": "unknown model nope" })
+            } else {
+                controls.push(req.to_string());
+                json!({ "subtype": "success", "request_id": msg["request_id"] })
+            };
+            emit(json!({ "type": "control_response", "response": response }));
+            continue;
+        }
         if msg["type"] != "user" {
             continue;
         }
@@ -73,6 +86,13 @@ pub fn run(args: &[String]) {
         let text = prompt_text(&msg);
         if text.contains("args") {
             let reply = format!("{}\ncwd={}", args.join(" "), cwd.display());
+            say(&reply);
+            done(&reply);
+        } else if text.contains("controls") {
+            let reply = controls.join(
+                "
+",
+            );
             say(&reply);
             done(&reply);
         } else if text.contains("hello") {

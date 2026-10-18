@@ -2,35 +2,44 @@
 // open in the browser and inline code in the mono font. Text size and line height come from the
 // caller, so a reply and a quoted snippet can differ.
 
+use std::ops::Range;
+
 use gpui::{
     AnyElement, FontStyle, FontWeight, HighlightStyle, InteractiveText, IntoElement, SharedString,
-    StrikethroughStyle, StyledText, UnderlineStyle, div, prelude::*, px, relative,
+    StrikethroughStyle, StyledText, UnderlineStyle, div, prelude::*, relative,
 };
 use hyprspace_theme::MONO;
 
 use super::code::CodeBlock;
+use super::fade::{block_size, local, merge};
 use super::select;
 use super::{Block, Inline};
 use crate::colors;
+use crate::zoom::px;
 
 /// `key` makes the element ids unique per transcript item.
-pub fn render(blocks: &[Block], key: &str) -> AnyElement {
+pub fn render(blocks: &[Block], key: &str, fade: &[(Range<usize>, f32)]) -> AnyElement {
+    from(blocks, key, 0, fade)
+}
+
+fn from(blocks: &[Block], key: &str, mut at: usize, fade: &[(Range<usize>, f32)]) -> AnyElement {
     div()
         .flex()
         .flex_col()
         .gap(px(10.))
-        .children(
-            blocks
-                .iter()
-                .enumerate()
-                .map(|(i, b)| block(b, &format!("{key}-{i}"))),
-        )
+        .children(blocks.iter().enumerate().map(|(i, b)| {
+            let el = block(b, &format!("{key}-{i}"), at, fade);
+            if !fade.is_empty() {
+                at += block_size(b);
+            }
+            el
+        }))
         .into_any_element()
 }
 
-fn block(b: &Block, key: &str) -> AnyElement {
+fn block(b: &Block, key: &str, at: usize, fade: &[(Range<usize>, f32)]) -> AnyElement {
     match b {
-        Block::Paragraph(i) => inline(i, key),
+        Block::Paragraph(i) => inline(i, key, at, fade),
         Block::Heading(level, i) => {
             let size = match level {
                 1 => px(18.),
@@ -41,35 +50,43 @@ fn block(b: &Block, key: &str) -> AnyElement {
                 .pt_1()
                 .text_size(size)
                 .font_weight(FontWeight::SEMIBOLD)
-                .child(inline(i, key))
+                .child(inline(i, key, at, fade))
                 .into_any_element()
         }
-        Block::Code { lang, text } => CodeBlock::new(key, lang, text).into_any_element(),
+        Block::Code { lang, text } => CodeBlock::new(key, lang, text)
+            .fade(at, fade)
+            .into_any_element(),
         Block::List { start, items } => div()
             .flex()
             .flex_col()
             .gap_1()
-            .children(items.iter().enumerate().map(|(n, item)| {
+            .children(items.iter().enumerate().scan(at, |at, (n, item)| {
+                let here = *at;
+                if !fade.is_empty() {
+                    *at += super::fade::size(item);
+                }
                 let marker = match start {
                     Some(s) => format!("{}.", s + n as u64),
                     None => "•".into(),
                 };
-                div()
-                    .flex()
-                    .gap_2()
-                    .child(
-                        div()
-                            .flex_none()
-                            .min_w(px(14.))
-                            .text_color(colors::text2())
-                            .child(marker),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .child(render(item, &format!("{key}-{n}"))),
-                    )
+                Some(
+                    div()
+                        .flex()
+                        .gap_2()
+                        .child(
+                            div()
+                                .flex_none()
+                                .min_w(px(14.))
+                                .text_color(colors::text2())
+                                .child(marker),
+                        )
+                        .child(div().flex_1().min_w_0().child(from(
+                            item,
+                            &format!("{key}-{n}"),
+                            here,
+                            fade,
+                        ))),
+                )
             }))
             .into_any_element(),
         Block::Quote(inner) => div()
@@ -77,14 +94,14 @@ fn block(b: &Block, key: &str) -> AnyElement {
             .border_l_2()
             .border_color(colors::border2())
             .text_color(colors::text2())
-            .child(render(inner, key))
+            .child(from(inner, key, at, fade))
             .into_any_element(),
         Block::Rule => div()
             .h(px(1.))
             .my_1()
             .bg(colors::border2())
             .into_any_element(),
-        Block::Table { head, rows } => table(head, rows, key),
+        Block::Table { head, rows } => table(head, rows, key, at, fade),
     }
 }
 
@@ -113,9 +130,16 @@ fn columns(head: &[Inline], rows: &[Vec<Inline>]) -> Vec<(f32, f32)> {
         .collect()
 }
 
-fn table(head: &[Inline], rows: &[Vec<Inline>], key: &str) -> AnyElement {
+fn table(
+    head: &[Inline],
+    rows: &[Vec<Inline>],
+    key: &str,
+    at: usize,
+    fade: &[(Range<usize>, f32)],
+) -> AnyElement {
     let sizes = columns(head, rows);
-    let row = |cells: &[Inline], key: String, head: bool| {
+    let mut at = at;
+    let mut row = |cells: &[Inline], key: String, head: bool| {
         div()
             .flex()
             .mx(px(4.))
@@ -132,7 +156,11 @@ fn table(head: &[Inline], rows: &[Vec<Inline>], key: &str) -> AnyElement {
                             .text_size(px(12.5))
                             .text_color(colors::text2())
                     })
-                    .child(inline(c, &format!("{key}-{i}")))
+                    .child({
+                        let el = inline(c, &format!("{key}-{i}"), at, fade);
+                        at += c.text.chars().count();
+                        el
+                    })
             }))
     };
     div()
@@ -158,7 +186,7 @@ fn table(head: &[Inline], rows: &[Vec<Inline>], key: &str) -> AnyElement {
 }
 
 /// One run of styled text. Links get their own click targets.
-pub fn inline(i: &Inline, key: &str) -> AnyElement {
+pub fn inline(i: &Inline, key: &str, at: usize, fade: &[(Range<usize>, f32)]) -> AnyElement {
     let highlights: Vec<_> = i
         .spans
         .iter()
@@ -185,6 +213,7 @@ pub fn inline(i: &Inline, key: &str) -> AnyElement {
             )
         })
         .collect();
+    let highlights = merge(i.text.len(), highlights, &local(&i.text, at, fade));
     let fonts: Vec<_> = i
         .spans
         .iter()

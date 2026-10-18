@@ -8,7 +8,7 @@ mod commands;
 use gpui::{
     AnyElement, AppContext, ClickEvent, Context, Entity, EventEmitter, FocusHandle, Focusable,
     FontWeight, IntoElement, KeyBinding, MouseButton, Render, ScrollHandle, SharedString,
-    Subscription, Window, actions, div, prelude::*, px, relative,
+    Subscription, Window, actions, div, prelude::*, relative,
 };
 use hyprspace_proto::Agent;
 use hyprspace_theme::MONO;
@@ -18,6 +18,7 @@ pub use commands::Cmd;
 use crate::assets::{icon, mark};
 use crate::colors;
 use crate::input::{InputEvent, TextInput};
+use crate::zoom::px;
 
 actions!(palette, [TogglePalette, SelectPrev, SelectNext]);
 

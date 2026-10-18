@@ -74,10 +74,11 @@ fn link_modifier(mods: &gpui::Modifiers) -> bool {
 impl TerminalView {
     pub(super) fn bar(&self) -> Option<Bar> {
         let grid = self.grid?;
-        if self.emu.alt_screen() {
+        let emu = self.emu();
+        if emu.alt_screen() {
             return None;
         }
-        paint::bar(&grid, self.emu.history(), self.emu.display_offset())
+        paint::bar(&grid, emu.history(), emu.display_offset())
     }
 
     pub(super) fn on_down(
@@ -110,23 +111,24 @@ impl TerminalView {
         }
         let (row, col, right) = grid.cell(e.position);
         let side = if right { Side::Right } else { Side::Left };
-        let point = self.emu.grid_point(row, col);
+        let point = self.emu().grid_point(row, col);
         let armed = match e.click_count {
-            0 | 1 if e.modifiers.shift && self.emu.selection_text().is_some() => {
-                self.emu.update_selection(point, side);
+            0 | 1 if e.modifiers.shift && self.emu().selection_text().is_some() => {
+                self.emu().update_selection(point, side);
                 true
             }
             0 | 1 => {
-                self.emu.clear_selection();
+                self.emu().clear_selection();
                 false
             }
             2 => {
-                self.emu
+                self.emu()
                     .start_selection(SelectionType::Semantic, point, side);
                 true
             }
             _ => {
-                self.emu.start_selection(SelectionType::Lines, point, side);
+                self.emu()
+                    .start_selection(SelectionType::Lines, point, side);
                 true
             }
         };
@@ -162,22 +164,22 @@ impl TerminalView {
             // anchor at the press, so the selection covers the whole gesture
             let (row, col, right) = grid.cell(drag.origin);
             let side = if right { Side::Right } else { Side::Left };
-            let at = self.emu.grid_point(row, col);
-            self.emu.start_selection(SelectionType::Simple, at, side);
+            let at = self.emu().grid_point(row, col);
+            self.emu().start_selection(SelectionType::Simple, at, side);
             drag.armed = true;
             self.drag = Some(drag);
         }
         // past the top or bottom edge, the view scrolls to take more
         let bottom = grid.origin.y + grid.line_h * grid.rows as f32;
         if e.position.y < grid.origin.y {
-            self.emu.scroll(1);
+            self.emu().scroll(1);
         } else if e.position.y > bottom {
-            self.emu.scroll(-1);
+            self.emu().scroll(-1);
         }
         let (row, col, right) = grid.cell(e.position);
         let side = if right { Side::Right } else { Side::Left };
-        let at = self.emu.grid_point(row, col);
-        self.emu.update_selection(at, side);
+        let at = self.emu().grid_point(row, col);
+        self.emu().update_selection(at, side);
         cx.notify();
     }
 
@@ -220,12 +222,13 @@ impl TerminalView {
         }
         let up = step > 0;
         let n = step.unsigned_abs() as usize;
-        if let Some(sgr) = self.emu.mouse_mode() {
+        let mouse = self.emu().mouse_mode();
+        if let Some(sgr) = mouse {
             let (row, col, _) = grid.cell(e.position);
             self.write(wheel_report(up, row, col, sgr).repeat(n));
-        } else if self.emu.alt_screen() && self.emu.alternate_scroll() {
+        } else if self.emu().alternate_scroll_on() {
             // less, vim and friends have no scrollback here: the wheel moves their own view
-            let key = match (up, self.emu.app_cursor()) {
+            let key = match (up, self.emu().app_cursor()) {
                 (true, false) => b"\x1b[A",
                 (true, true) => b"\x1bOA",
                 (false, false) => b"\x1b[B",
@@ -233,7 +236,7 @@ impl TerminalView {
             };
             self.write(key.repeat(n));
         } else {
-            self.emu.scroll(step);
+            self.emu().scroll(step);
             self.hover = None;
             self.rest_on(None, cx);
             cx.notify();
@@ -244,8 +247,8 @@ impl TerminalView {
         let (Some(bar), Some(grab)) = (self.bar(), self.bar_grab) else {
             return;
         };
-        let offset = paint::offset_at(&bar, y - grab, self.emu.history());
-        self.emu.scroll_to_offset(offset);
+        let offset = paint::offset_at(&bar, y - grab, self.emu().history());
+        self.emu().scroll_to_offset(offset);
         cx.notify();
     }
 
@@ -272,8 +275,8 @@ impl TerminalView {
             return None;
         }
         let (row, col, _) = grid.cell(at);
-        let line = self.emu.line_text(row);
-        let point = self.emu.grid_point(row, col);
+        let line = self.emu().line_text(row);
+        let point = self.emu().grid_point(row, col);
         let idx = line.points.iter().position(|p| *p == point)?;
         let link = links::at(&line.text, idx)?;
         let open = match link.target {

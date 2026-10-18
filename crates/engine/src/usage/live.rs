@@ -388,8 +388,8 @@ fn claude_token() -> Option<String> {
 /// The id and label for one entry of claude's `limits` array.
 fn claude_limit_id(l: &Value) -> (String, String) {
     match l["kind"].as_str() {
-        Some("session") => ("session".into(), "Session".into()),
-        Some("weekly_all") => ("weekly".into(), "All models".into()),
+        Some("session") => ("session".into(), "Current session".into()),
+        Some("weekly_all") => ("weekly".into(), "This week".into()),
         _ => {
             let name = l["scope"]["model"]["display_name"].as_str();
             (
@@ -427,8 +427,8 @@ fn claude_shape(d: &Value, plan: Option<String>, now: i64) -> LiveUsage {
         .collect();
     if bars.is_empty() {
         for (key, id, label, win) in [
-            ("five_hour", "session", "Session", 5 * HOUR_MS),
-            ("seven_day", "weekly", "All models", 168 * HOUR_MS),
+            ("five_hour", "session", "Current session", 5 * HOUR_MS),
+            ("seven_day", "weekly", "This week", 168 * HOUR_MS),
         ] {
             if let Some(w) = d.get(key).filter(|v| !v.is_null()) {
                 bars.push(LiveBar {
@@ -762,8 +762,8 @@ mod tests {
         assert_eq!(
             bars,
             [
-                ("session", "Session", 66.0),
-                ("weekly", "All models", 0.5),
+                ("session", "Current session", 66.0),
+                ("weekly", "This week", 0.5),
                 ("scoped:Opus", "Opus this week", 100.0),
             ]
         );

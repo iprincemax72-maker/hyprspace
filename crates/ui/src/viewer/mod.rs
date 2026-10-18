@@ -16,11 +16,12 @@ use std::time::Duration;
 use gpui::{
     App, AppContext, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
     MouseButton, ObjectFit, Render, SharedString, StyledImage, Subscription, Task,
-    UniformListScrollHandle, Window, div, img, prelude::*, px,
+    UniformListScrollHandle, Window, div, img, prelude::*,
 };
 use hyprspace_proto::{Client, Command, FolderCommand, FolderEvent, Pane};
 
 use crate::colors;
+use crate::zoom::px;
 use diff::Diff;
 use edit::{Editor, EditorEvent};
 

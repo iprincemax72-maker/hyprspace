@@ -2,10 +2,11 @@
 // deletes, Enter and Tab, and the Ctrl shortcuts (Cmd on macOS). Typed text comes through the
 // input handler instead, IME and all; a key handled here stops there.
 
-use gpui::{Context, KeyDownEvent, Window, px};
+use gpui::{Context, KeyDownEvent, Window};
 
 use super::Editor;
 use crate::viewer::code::ROW;
+use crate::zoom::px;
 
 impl Editor {
     pub(super) fn on_key(&mut self, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {

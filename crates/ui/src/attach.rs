@@ -9,11 +9,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use gpui::{
     AnyElement, App, Asset, Context, ElementId, Image, ImageFormat, IntoElement, ObjectFit,
-    RenderImage, Window, div, img, prelude::*, px,
+    RenderImage, Window, div, img, prelude::*,
 };
 pub use hyprspace_media::is_video;
 
 use crate::colors;
+use crate::zoom::px;
 
 const IMAGE_EXT: &[&str] = &["png", "jpg", "jpeg", "gif", "webp", "bmp"];
 

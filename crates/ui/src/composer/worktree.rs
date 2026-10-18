@@ -1,12 +1,13 @@
 use std::path::PathBuf;
 
-use gpui::{AnyElement, ClickEvent, Context, Pixels, Point, Window, div, prelude::*, px};
+use gpui::{AnyElement, ClickEvent, Context, Pixels, Point, Window, div, prelude::*};
 use hyprspace_proto::git::Worktree;
 use hyprspace_proto::{Command, FolderCommand, Launch, Prompt};
 use hyprspace_theme::MONO;
 
 use super::{Composer, ComposerEvent};
 use crate::assets::icon;
+use crate::zoom::px;
 use crate::{colors, widgets};
 
 pub(super) struct Waiting {

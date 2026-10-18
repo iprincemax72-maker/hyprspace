@@ -11,7 +11,10 @@
 // the background answers its call at once with a launch note, so that call stays open until the
 // subagent's `task_notification`, and the CLI then starts a run of its own to read the result.
 
+mod history;
 mod resume;
+
+pub use history::history;
 mod tools;
 mod wire;
 
@@ -95,7 +98,12 @@ fn args(launch: &Launch) -> Vec<String> {
     .into();
     match launch.permission {
         Permission::Bypass => out.push("--dangerously-skip-permissions".into()),
-        p => out.extend(["--permission-mode".into(), mode(p).into()]),
+        p => out.extend([
+            "--permission-mode".into(),
+            mode(p).into(),
+            // without it the CLI refuses a later switch to Bypass
+            "--allow-dangerously-skip-permissions".into(),
+        ]),
     }
     if let Some(model) = &launch.model {
         out.extend(["--model".into(), model.clone()]);
@@ -178,6 +186,8 @@ impl Harness for Claude {
             emit,
             cwd,
             model: launch.model.clone(),
+            effort: launch.effort.clone(),
+            fast: launch.fast,
             permission: launch.permission,
             patience: self.patience,
             started: false,
@@ -249,6 +259,8 @@ struct Actor {
     /// The main model's context window, from the latest `result`.
     window: Option<u64>,
     model: Option<String>,
+    effort: Option<String>,
+    fast: bool,
     permission: Permission,
 }
 
@@ -331,6 +343,22 @@ impl Actor {
                     };
                     self.model = launch.model;
                     self.write(wire::control_line("hs-model", request)).await;
+                }
+                if launch.effort != self.effort {
+                    self.effort = launch.effort;
+                    let request = json!({
+                        "subtype": "apply_flag_settings",
+                        "settings": { "effortLevel": self.effort },
+                    });
+                    self.write(wire::control_line("hs-effort", request)).await;
+                }
+                if launch.fast != self.fast {
+                    self.fast = launch.fast;
+                    let request = json!({
+                        "subtype": "apply_flag_settings",
+                        "settings": { "fastMode": self.fast },
+                    });
+                    self.write(wire::control_line("hs-fast", request)).await;
                 }
                 if launch.permission != self.permission {
                     self.permission = launch.permission;
@@ -425,6 +453,7 @@ impl Actor {
         // subagent traffic carries the spawning tool's id; it belongs to that subagent's own
         // transcript, never the main reply. Control requests stay here whatever they carry: an
         // approval a subagent asks for still waits on the user.
+        crate::protocol::claude(&v);
         let kind = v["type"].as_str().unwrap_or_default();
         if let Some(parent) = v["parent_tool_use_id"].as_str()
             && matches!(kind, "assistant" | "user" | "stream_event")
@@ -544,6 +573,12 @@ impl Actor {
                     tool,
                     reason: body["decision_reason"].as_str().map(str::to_string),
                     always,
+                });
+            }
+            "control_response" if v["response"]["subtype"] == "error" => {
+                let why = v["response"]["error"].as_str().unwrap_or("no reason given");
+                (self.emit)(RunEvent::Error {
+                    message: format!("Claude refused the change: {why}"),
                 });
             }
             "control_cancel_request" => {

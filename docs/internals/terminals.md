@@ -16,6 +16,19 @@ interactively. Code: `engine/src/pty.rs`, `terminal.rs`, `hooks.rs`, `running.rs
   `OpenConsole.exe` hosts busy-spin at about 8% CPU each. Locks recover from poisoning, so one
   panic can't brick PTY I/O.
 
+## Parsing off the main thread
+
+- Terminal output never reaches the main thread. `Root` puts a router between the engine and the
+  UI (`ui/src/terminal/feed.rs`): `TerminalOutput` goes to that terminal's emulator, behind a lock,
+  and is parsed on a background thread. Answers to the terminal's queries (cursor position,
+  colors) go back to the PTY from there, so a CLI in a terminal nobody looks at never waits on the
+  UI. Every other event reaches the UI as before, in order.
+- Only a terminal on screen wakes the UI, and only once until it has drawn. `Root` marks which
+  terminals are on screen each time it draws, and one coming back on screen catches up then.
+- The theme is thread local, so `colors` keeps a copy for the color answers.
+- Lock the emulator once per expression. Two locks in one expression, or an `if let` on a locked
+  value whose body locks again, deadlock.
+
 ## Launching agents
 
 The engine builds `claude ...` or `codex ...` from fixed flags and catalog ids (anything past a

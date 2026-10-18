@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use gpui::{
     AnyElement, AppContext, ClickEvent, Context, Div, Entity, Focusable, FontWeight, IntoElement,
-    Render, Subscription, Window, div, prelude::*, px,
+    Render, Subscription, Window, div, prelude::*,
 };
 use hyprspace_proto::agents::{SkillItem, SkillKind, SkillScope};
 use hyprspace_proto::{Client, Command, SkillCommand, SkillEvent};
@@ -18,6 +18,7 @@ use hyprspace_theme::MONO;
 use crate::assets::icon;
 use crate::input::{InputEvent, TextInput};
 use crate::root::{Root, Screen};
+use crate::zoom::px;
 use crate::{colors, widgets};
 
 const TEMPLATE: &str = "---

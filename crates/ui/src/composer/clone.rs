@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use gpui::{
-    AnyElement, ClickEvent, Context, Entity, FontWeight, IntoElement, div, prelude::*, px, relative,
+    AnyElement, ClickEvent, Context, Entity, FontWeight, IntoElement, div, prelude::*, relative,
 };
 use hyprspace_theme::MONO;
 
@@ -14,6 +14,7 @@ use super::repo::RepoRef;
 use crate::assets::icon;
 use crate::colors;
 use crate::input::TextInput;
+use crate::zoom::px;
 
 pub struct CloneCard {
     /// The link the card was set up for; a different one resets it.

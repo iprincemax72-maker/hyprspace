@@ -4,7 +4,7 @@
 
 use gpui::{
     AnyElement, AppContext, ClickEvent, Context, Entity, Focusable, FontWeight, Window, div,
-    prelude::*, px,
+    prelude::*,
 };
 use hyprspace_proto::Command;
 use hyprspace_proto::peer::{Found, PeerCommand};
@@ -14,6 +14,7 @@ use super::Root;
 use super::controls::{group, row, text};
 use crate::input::{InputEvent, TextInput};
 use crate::time::{ago, local, now_ms};
+use crate::zoom::px;
 use crate::{colors, widgets};
 
 impl Root {

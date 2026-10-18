@@ -1,8 +1,9 @@
 use std::time::{Duration, Instant};
 
-use gpui::{App, ListOffset, ListState, Pixels, Window, px};
+use gpui::{App, ListOffset, ListState, Pixels, Window};
 
 use crate::slide::{animations, ease_out};
+use crate::zoom::px;
 
 enum Aim {
     Bottom,

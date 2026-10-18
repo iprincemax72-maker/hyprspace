@@ -2,13 +2,14 @@
 // unsaved edits (Reload or Overwrite) or a save failed; a dialog over the editor when the card is
 // closing with unsaved edits (Save changes, Discard or Cancel; Enter saves and Esc cancels).
 
-use gpui::{AnyElement, Context, FontWeight, MouseButton, div, prelude::*, px};
+use gpui::{AnyElement, Context, FontWeight, MouseButton, div, prelude::*};
 use hyprspace_proto::{Command, FolderCommand};
 
 use super::{Editor, EditorEvent, Notice};
 use crate::assets::icon;
 use crate::colors;
 use crate::widgets;
+use crate::zoom::px;
 
 impl Editor {
     /// Asked to close with unsaved edits: the dialog is up and holds the keyboard.

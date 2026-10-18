@@ -3,13 +3,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use gpui::{
     AnyElement, ClickEvent, Context, FontWeight, IntoElement, MouseButton, SharedString, div,
-    prelude::*, px, relative,
+    prelude::*, relative,
 };
 use hyprspace_proto::Command;
 
 use super::{FolderPicker, PickerEvent, keycap};
 use crate::assets::icon;
 use crate::colors;
+use crate::zoom::px;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Row {

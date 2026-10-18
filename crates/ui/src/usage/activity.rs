@@ -1,11 +1,12 @@
 // Settings, Usage, Activity: what each agent has done, from its own files on this machine.
 
-use gpui::{AnyElement, FontWeight, Hsla, IntoElement, div, prelude::*, px, relative};
+use gpui::{AnyElement, FontWeight, Hsla, IntoElement, div, prelude::*, relative};
 use hyprspace_proto::usage::ProviderUsage;
 
 use super::page::*;
 use super::{Limits, PROVIDERS, brand};
 use crate::colors;
+use crate::zoom::px;
 
 /// "claude-opus-4-8" is "Opus 4.8", "claude-3-5-sonnet-20241022" is "Sonnet 3.5", and
 /// "gpt-5.6-terra" is "GPT-5.6 Terra". Other ids pass through.

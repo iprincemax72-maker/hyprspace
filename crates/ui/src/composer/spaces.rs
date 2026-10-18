@@ -1,12 +1,11 @@
 // The folder under the box, as a menu: the projects on the same computer to start in, and a way
 // to open another folder.
 
-use gpui::{
-    AnyElement, ClickEvent, Context, IntoElement, Pixels, Point, Window, div, prelude::*, px,
-};
+use gpui::{AnyElement, ClickEvent, Context, IntoElement, Pixels, Point, Window, div, prelude::*};
 
 use super::{Composer, ComposerEvent};
 use crate::assets::icon;
+use crate::zoom::px;
 use crate::{colors, widgets};
 
 #[derive(Clone, PartialEq)]

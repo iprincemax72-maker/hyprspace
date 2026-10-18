@@ -42,6 +42,7 @@ fn a_computer_pairs_drives_a_terminal_reads_a_journal_and_a_folder() {
     hc.send(Command::Phone(PhoneCommand::Enable {
         on: true,
         network: Network::Everywhere,
+        browser: false,
     }));
     wait(&mut he, |e| match e {
         Event::Phone(PhoneEvent::Status { status }) if status.on => Some(()),

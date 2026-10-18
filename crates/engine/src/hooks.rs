@@ -306,7 +306,14 @@ pub fn run_agent_hook(port: u16, session: &str) {
     let payload: Value = serde_json::from_str(&input).unwrap_or_else(|_| json!({ "raw": input }));
     post(
         port,
-        &json!({ "session": session, "payload": payload }).to_string(),
+        &json!({
+            "session": session,
+            "agent": (payload["hook_event_name"] == "SessionStart")
+                .then(crate::running::nearest_agent)
+                .flatten(),
+            "payload": payload,
+        })
+        .to_string(),
     );
 }
 

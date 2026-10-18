@@ -3,7 +3,7 @@
 
 use gpui::{
     AnyElement, ClickEvent, ClipboardItem, Context, Div, FontWeight, IntoElement, Window, div,
-    prelude::*, px,
+    prelude::*,
 };
 use hyprspace_proto::state::Scheme;
 use hyprspace_proto::{Agent, Command, Permission};
@@ -12,6 +12,7 @@ use hyprspace_theme::THEMES;
 use super::sketches;
 use crate::assets::{icon, mark};
 use crate::root::Root;
+use crate::zoom::px;
 use crate::{colors, widgets};
 
 const INSTALL: [(Agent, &str); 2] = [

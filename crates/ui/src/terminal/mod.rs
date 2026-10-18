@@ -6,6 +6,7 @@
 mod clipboard;
 mod contrast;
 mod emulator;
+mod feed;
 mod glyphs;
 mod images;
 mod input;
@@ -17,17 +18,24 @@ mod search;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
+
+use futures::StreamExt;
 
 use gpui::{
     App, Context, CursorStyle, ElementInputHandler, EventEmitter, FocusHandle, Focusable, Hsla,
     IntoElement, KeyDownEvent, MouseButton, Pixels, Render, Task, Window, canvas, div, prelude::*,
-    px,
 };
 use hyprspace_proto::{Agent, Client, Command, Launch, PhoneCommand, SessionId};
 
 use crate::colors::{self, hsla, theme};
+use crate::zoom::px;
 use emulator::{CellColor, Emulator, Marks};
+pub use feed::Feeds;
+use feed::{Feed, Shared};
 use mouse::{Drag, Hover};
 use paint::Grid;
 use search::Find;
@@ -50,7 +58,10 @@ pub enum TerminalEvent {
 pub struct TerminalView {
     id: SessionId,
     client: Client,
-    emu: Emulator,
+    emu: Shared,
+    feed: Feed,
+    feeds: Feeds,
+    seen: u64,
     focus: FocusHandle,
     /// Relative paths in the output resolve against this.
     cwd: PathBuf,
@@ -88,6 +99,7 @@ pub struct TerminalView {
     /// Image previews, and the images pasted into Claude's prompt.
     images: images::Images,
     _blink: Task<()>,
+    _wake: Task<()>,
     /// Focus and blur redraw it: the view is cached, and its cursor shows focus.
     _focus: Vec<gpui::Subscription>,
 }
@@ -109,6 +121,25 @@ impl TerminalView {
         // claude draws its own cursor and the Tauri app never blinked over it
         let blink = run.as_ref().is_none_or(|r| r.agent != Agent::Claude);
         let images = images::Images::new(run.as_ref());
+        let emu = Arc::new(Mutex::new(Emulator::new(cols, rows, blink, palette)));
+        let (wake, mut rung) = futures::channel::mpsc::unbounded();
+        let feed = Feed {
+            emu: emu.clone(),
+            client: client.clone(),
+            fed: Arc::new(AtomicU64::new(0)),
+            shown: Arc::new(AtomicBool::new(false)),
+            pending: Arc::new(AtomicBool::new(false)),
+            wake,
+        };
+        let feeds = cx.default_global::<Feeds>().clone();
+        feeds.add(id, feed.clone());
+        let waker = cx.spawn(async move |this, cx| {
+            while rung.next().await.is_some() {
+                if this.update(cx, |v, cx| v.caught_up(cx)).is_err() {
+                    break;
+                }
+            }
+        });
         client.send(Command::OpenTerminal {
             id,
             cwd: cwd.clone(),
@@ -123,7 +154,7 @@ impl TerminalView {
                 let alive = this.update(cx, |v, cx| {
                     if v.focused
                         && v.active
-                        && v.emu.cursor().is_some_and(|c| c.blink)
+                        && v.emu().cursor().is_some_and(|c| c.blink)
                         && v.typed.elapsed() >= BLINK
                     {
                         v.blink_on = !v.blink_on;
@@ -138,7 +169,10 @@ impl TerminalView {
         Self {
             id,
             client,
-            emu: Emulator::new(cols, rows, blink, palette),
+            emu,
+            feed,
+            feeds,
+            seen: 0,
             focus: cx.focus_handle(),
             cwd,
             status: None,
@@ -164,8 +198,35 @@ impl TerminalView {
             typed: Instant::now(),
             images,
             _blink: blinker,
+            _wake: waker,
             _focus: Vec::new(),
         }
+    }
+
+    fn emu(&self) -> MutexGuard<'_, Emulator> {
+        feed::lock(&self.emu)
+    }
+
+    pub fn show(&self, on: bool) {
+        let was = self.feed.shown.swap(on, Ordering::Relaxed);
+        if on && !was && self.feed.fed.load(Ordering::Relaxed) != self.seen {
+            self.feed.ring();
+        }
+    }
+
+    fn caught_up(&mut self, cx: &mut Context<Self>) {
+        self.feed.pending.store(false, Ordering::Release);
+        let fed = self.feed.fed.load(Ordering::Relaxed);
+        if fed == self.seen {
+            return;
+        }
+        self.seen = fed;
+        // the text under the pointer may have moved
+        self.hover = None;
+        if self.find.is_some() {
+            self.refind(false, cx);
+        }
+        cx.notify();
     }
 
     fn write(&self, bytes: Vec<u8>) {
@@ -183,7 +244,7 @@ impl TerminalView {
             self.client
                 .send(Command::Phone(PhoneCommand::Take { id: self.id }));
         }
-        self.emu.scroll_to_bottom();
+        self.emu().scroll_to_bottom();
         self.blink_on = true;
         self.typed = Instant::now();
         if bytes == b"\r" || bytes.contains(&0x03) {
@@ -195,20 +256,12 @@ impl TerminalView {
 
     /// A line of this terminal's scrollback holding `query`, for the command palette.
     pub fn snippet(&self, query: &str) -> Option<String> {
-        self.emu.snippet(query, 72)
+        self.emu().snippet(query, 72)
     }
 
     pub fn output(&mut self, bytes: &[u8], cx: &mut Context<Self>) {
-        let reply = self.emu.feed(bytes);
-        if !reply.is_empty() {
-            self.write(reply);
-        }
-        // the text under the pointer may have moved
-        self.hover = None;
-        if self.find.is_some() {
-            self.refind(false, cx);
-        }
-        cx.notify();
+        self.feed.take(self.id, bytes);
+        self.caught_up(cx);
     }
 
     /// A phone sized this terminal for its screen, or the desktop has it back.
@@ -235,9 +288,9 @@ impl TerminalView {
         let primary = if mac { m.platform } else { m.control };
         match ks.key.as_str() {
             // with nothing selected, Ctrl+Shift+C does nothing, as in the Tauri app
-            "c" if primary && (mac || m.shift || self.emu.selection_text().is_some()) => {
+            "c" if primary && (mac || m.shift || self.emu().selection_text().is_some()) => {
                 if self.copy(cx) {
-                    self.emu.clear_selection();
+                    self.emu().clear_selection();
                     cx.notify();
                 }
                 cx.stop_propagation();
@@ -264,7 +317,8 @@ impl TerminalView {
         if keys::is_text(ks.key_char.as_deref(), m) {
             return;
         }
-        if let Some(b) = keys::bytes(&ks.key, ks.key_char.as_deref(), m, self.emu.app_cursor()) {
+        let app = self.emu().app_cursor();
+        if let Some(b) = keys::bytes(&ks.key, ks.key_char.as_deref(), m, app) {
             self.input(b, cx);
             cx.stop_propagation();
         }
@@ -274,7 +328,7 @@ impl TerminalView {
     /// hears once the size settles.
     fn fit(&mut self, grid: Grid, cx: &mut Context<Self>) {
         self.grid = Some(grid);
-        if self.emu.size() == (grid.cols, grid.rows) {
+        if self.emu().size() == (grid.cols, grid.rows) {
             return;
         }
         // the pane's width changes every frame while a side panel slides, so the screen keeps
@@ -291,11 +345,11 @@ impl TerminalView {
             }
             return;
         }
-        self.emu.resize(grid.cols, grid.rows);
+        self.emu().resize(grid.cols, grid.rows);
         let (id, client) = (self.id, self.client.clone());
         self.resize = Some(cx.spawn(async move |this, cx| {
             cx.background_executor().timer(RESIZE_SETTLE).await;
-            if let Ok((cols, rows)) = this.read_with(cx, |v, _| v.emu.size()) {
+            if let Ok((cols, rows)) = this.read_with(cx, |v, _| v.emu().size()) {
                 client.send(Command::ResizeTerminal { id, cols, rows });
             }
         }));
@@ -327,13 +381,13 @@ impl TerminalView {
             return;
         };
         let query = f.input.read(cx).text().to_string();
-        f.run(&mut self.emu, jump, &query);
+        f.run(&mut feed::lock(&self.emu), jump, &query);
         cx.notify();
     }
 
     fn step(&mut self, down: bool, cx: &mut Context<Self>) {
         if let Some(f) = self.find.as_mut() {
-            f.step(&mut self.emu, down);
+            f.step(&mut feed::lock(&self.emu), down);
             cx.notify();
         }
     }
@@ -360,7 +414,7 @@ fn cell_color(color: CellColor) -> Hsla {
 
 /// The theme's colors by xterm's numbering, for programs that ask (OSC 4, 10, 11, 12).
 fn palette(ix: usize) -> (u8, u8, u8) {
-    let t = theme();
+    let t = colors::shared_theme();
     let c = match ix {
         0..=255 => t.indexed(ix as u8),
         257 => t.term_bg,
@@ -369,6 +423,12 @@ fn palette(ix: usize) -> (u8, u8, u8) {
     };
     let [r, g, b, _] = c.0.to_be_bytes();
     (r, g, b)
+}
+
+impl Drop for TerminalView {
+    fn drop(&mut self) {
+        self.feeds.remove(self.id);
+    }
 }
 
 impl Focusable for TerminalView {
@@ -516,8 +576,10 @@ impl TerminalView {
             current,
             link: self.hover.as_ref().map(|h| &h.range),
         };
-        let lines = self.emu.lines(&marks);
-        let cursor = self.emu.cursor();
+        let (lines, cursor) = {
+            let emu = self.emu();
+            (emu.lines(&marks), emu.cursor())
+        };
         let visible = self.focused && (self.blink_on || !cursor.is_some_and(|c| c.blink));
         let preedit = cursor
             .filter(|_| !self.preedit.is_empty())

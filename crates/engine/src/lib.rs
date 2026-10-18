@@ -27,6 +27,7 @@ pub mod terminal;
 mod update;
 pub mod usage;
 mod util;
+mod watch;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -65,7 +66,9 @@ impl Engine {
     /// two ends of the channel.
     pub fn start() -> std::io::Result<(Engine, Client, Events)> {
         update::sweep();
-        Self::start_in(persist::state_dir())
+        let dir = persist::state_dir();
+        hyprspace_harness::protocol::log_to(dir.join("protocol.log"));
+        Self::start_in(dir)
     }
 
     /// Starts the engine with its saved state and journals under `dir`.
@@ -356,6 +359,13 @@ async fn serve(
                     });
                     live.session.answer(request, answer, answers);
                 }
+            }
+            Command::ImportHistory {
+                journal,
+                conversation,
+            } => {
+                let file = journal::path(&journals, &journal);
+                block_in_place(|| journal::import(&file, &conversation));
             }
             Command::LoadJournal { id, journal } => {
                 let file = journal::path(&journals, &journal);

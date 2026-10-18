@@ -19,6 +19,10 @@ pub enum FolderCommand {
     ListFiles {
         cwd: PathBuf,
     },
+    /// Replaces the last list. Each folder is answered with `Git` when its files change.
+    Watch {
+        cwds: Vec<PathBuf>,
+    },
     /// A text file for the viewer. Answered with `File`.
     ReadFile {
         path: PathBuf,

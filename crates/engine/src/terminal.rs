@@ -352,6 +352,7 @@ struct Tracked {
     subs: Vec<SubAgent>,
     /// What Claude's own status file said at the last look (`running::claude_status`).
     told: Option<AgentState>,
+    conversation: Option<String>,
 }
 
 impl Tracked {
@@ -363,6 +364,7 @@ impl Tracked {
             doing: None,
             subs: Vec::new(),
             told: None,
+            conversation: None,
         }
     }
 }
@@ -383,6 +385,7 @@ pub struct Terminals {
     listener: Arc<Mutex<Option<Listener>>>,
     /// The agent last seen in each session, from its processes or its hooks.
     seen: Arc<Mutex<HashMap<SessionId, Seen>>>,
+    owners: Arc<Mutex<HashMap<SessionId, u32>>>,
 }
 
 fn token(id: SessionId) -> String {
@@ -408,6 +411,7 @@ impl Terminals {
             tracked: Arc::default(),
             listener: Arc::default(),
             seen: Arc::default(),
+            owners: Arc::default(),
         };
         let watcher = this.clone();
         thread::spawn(move || watcher.watch());
@@ -423,10 +427,15 @@ impl Terminals {
             thread::sleep(WATCH_EVERY);
             let shells = self.ptys.pids();
             lock(&self.seen).retain(|id, _| shells.iter().any(|(s, _)| s == id));
+            lock(&self.owners).retain(|id, _| shells.iter().any(|(s, _)| s == id));
             if shells.is_empty() {
                 continue;
             }
             for (id, found) in procs.agents(&shells) {
+                match &found {
+                    Some((_, pid)) => lock(&self.owners).insert(id, *pid),
+                    None => lock(&self.owners).remove(&id),
+                };
                 if let Some((seen, pid)) = &found
                     && seen.agent == Agent::Claude
                     && let Some(status) = running::claude_status(&home, *pid)
@@ -692,11 +701,31 @@ impl Terminals {
             .pointer("/statusLine/model/id")
             .and_then(Value::as_str)
             .map(String::from);
+        let agent = body.get("agent").and_then(Value::as_u64);
         let (id, changed, activity, prompt) = {
             let mut tracked = lock(&self.tracked);
             let Some(t) = tracked.get_mut(key) else {
                 return;
             };
+            // a fork Claude starts itself inherits these hooks: its process gives it away at start
+            let start = payload
+                .and_then(|p| p.get("hook_event_name"))
+                .and_then(Value::as_str)
+                == Some("SessionStart");
+            if start {
+                if let (Some(agent), Some(owner)) = (agent, lock(&self.owners).get(&t.id))
+                    && agent != u64::from(*owner)
+                {
+                    return;
+                }
+                t.conversation = conversation.clone();
+            } else if let Some(c) = &conversation {
+                match &t.conversation {
+                    Some(mine) if mine != c => return,
+                    Some(_) => {}
+                    None => t.conversation = Some(c.clone()),
+                }
+            }
             let next = payload.map_or(t.state, |p| next_state(t.state, p));
             let changed = (next != t.state).then_some(next);
             t.state = next;
@@ -997,5 +1026,43 @@ mod tests {
         // a hook for someone else's session changes nothing
         terms.on_hook(Hook::StatusLine(json!({ "session": "other" })));
         assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn only_the_threads_own_agent_moves_its_conversation() {
+        let (tx, mut rx) = futures::channel::mpsc::unbounded();
+        let terms = Terminals::new(PtyManager::default(), tx);
+        let id = SessionId(6);
+        lock(&terms.tracked).insert(token(id), Tracked::new(id, None));
+        lock(&terms.owners).insert(id, 40);
+        let hook = |agent: u32, conversation: &str| {
+            Hook::Agent(json!({
+                "session": token(id),
+                "agent": agent,
+                "payload": { "hook_event_name": "SessionStart", "session_id": conversation }
+            }))
+        };
+        let moved = |rx: &mut futures::channel::mpsc::UnboundedReceiver<Event>| {
+            std::iter::from_fn(|| rx.try_recv().ok())
+                .filter_map(|e| match e {
+                    Event::TerminalConversation { resume, .. } => Some(resume),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        terms.on_hook(hook(40, "mine"));
+        assert_eq!(moved(&mut rx), ["mine"]);
+        // a fork that inherited the hooks reports its own conversation
+        terms.on_hook(hook(77, "fork"));
+        assert!(moved(&mut rx).is_empty());
+        // and so does its status line
+        terms.on_hook(Hook::StatusLine(json!({
+            "session": token(id),
+            "statusLine": { "session_id": "fork" }
+        })));
+        assert!(moved(&mut rx).is_empty());
+        // the thread's own agent still moves on, as after /clear
+        terms.on_hook(hook(40, "cleared"));
+        assert_eq!(moved(&mut rx), ["cleared"]);
     }
 }

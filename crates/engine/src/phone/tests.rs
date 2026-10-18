@@ -152,6 +152,7 @@ fn a_phone_pairs_watches_a_terminal_types_and_comes_back() {
     client.send(Command::Phone(PhoneCommand::Enable {
         on: true,
         network: Network::Everywhere,
+        browser: false,
     }));
     let port = wait(&mut events, |e| match e {
         Event::Phone(PhoneEvent::Status { status }) if status.on => Some(status.port),
@@ -615,4 +616,162 @@ fn the_phone_never_hears_of_a_compaction() {
         after: Some(1),
     })));
     assert!(super::for_phone(&run(RunEvent::Steered)));
+}
+
+#[test]
+fn a_browser_loads_the_page_and_pairs_with_the_typed_code() {
+    // SAFETY: every test that touches this sets it to the same value
+    unsafe { std::env::set_var("HYPRSPACE_PHONE_BIND", "127.0.0.1") };
+    let dir = tempfile::tempdir().unwrap();
+    let (engine, client, mut events) = Engine::start_in(dir.path().into()).unwrap();
+    client.send(Command::Phone(PhoneCommand::Enable {
+        on: true,
+        network: Network::Everywhere,
+        browser: true,
+    }));
+    let (url, bridge) = wait(&mut events, |e| match e {
+        Event::Phone(PhoneEvent::Status { status }) => status.browser.map(|u| (u, status.port)),
+        _ => None,
+    });
+    let port: u16 = url
+        .trim_end_matches('/')
+        .rsplit(':')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    client.send(Command::Phone(PhoneCommand::Pair));
+    let (code, link) = wait(&mut events, |e| match e {
+        Event::Phone(PhoneEvent::Pairing { pairing: Some(p) }) => Some((p.code, p.link)),
+        _ => None,
+    });
+    let fingerprint = query(&link, "f").to_string();
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let token = rt.block_on(async {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let provider = Arc::new(tokio_rustls::rustls::crypto::aws_lc_rs::default_provider());
+        let config = ClientConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(Pinned(fingerprint.clone())))
+            .with_no_client_auth();
+        let tcp = tokio::net::TcpStream::connect(("127.0.0.1", bridge))
+            .await
+            .unwrap();
+        let mut tls = TlsConnector::from(Arc::new(config))
+            .connect(ServerName::try_from("hyprspace").unwrap(), tcp)
+            .await
+            .unwrap();
+        tls.write_all(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n")
+            .await
+            .unwrap();
+        let mut page = Vec::new();
+        let _ = tls.read_to_end(&mut page).await;
+        let page = String::from_utf8_lossy(&page);
+        assert!(
+            page.starts_with("HTTP/1.1 200"),
+            "the bridge serves the page too: {page}"
+        );
+
+        let mut tcp = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .unwrap();
+        tcp.write_all(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n")
+            .await
+            .unwrap();
+        let mut page = String::new();
+        tcp.read_to_string(&mut page).await.unwrap();
+        assert!(page.starts_with("HTTP/1.1 200"), "{page}");
+        assert!(page.contains("/app.js"));
+
+        let tcp = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .unwrap();
+        let (mut ws, _) = tokio_tungstenite::client_async(format!("ws://127.0.0.1:{port}/ws"), tcp)
+            .await
+            .unwrap();
+        let wrong = Up::Pair {
+            proof: super::prove(&code, "not the browser word"),
+            device: "Chrome on Windows".into(),
+            protocol: PROTOCOL,
+            app: "browser".into(),
+            computer: false,
+        };
+        ws.send(Message::Text(serde_json::to_string(&wrong).unwrap().into()))
+            .await
+            .unwrap();
+        let denied = loop {
+            if let Some(Ok(Message::Text(t))) = ws.next().await {
+                break serde_json::from_str::<Down>(&t).unwrap();
+            }
+        };
+        assert!(matches!(denied, Down::Denied { .. }), "{denied:?}");
+
+        let tcp = tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .unwrap();
+        let (mut ws, _) = tokio_tungstenite::client_async(format!("ws://127.0.0.1:{port}/ws"), tcp)
+            .await
+            .unwrap();
+        let typed = code.to_lowercase();
+        let key: String = typed
+            .chars()
+            .filter(char::is_ascii_alphanumeric)
+            .collect::<String>()
+            .to_uppercase();
+        let pair = Up::Pair {
+            proof: super::prove(&key, super::WEB),
+            device: "Chrome on Windows".into(),
+            protocol: PROTOCOL,
+            app: "browser".into(),
+            computer: false,
+        };
+        ws.send(Message::Text(serde_json::to_string(&pair).unwrap().into()))
+            .await
+            .unwrap();
+        let welcome = loop {
+            if let Some(Ok(Message::Text(t))) = ws.next().await {
+                break serde_json::from_str::<Down>(&t).unwrap();
+            }
+        };
+        match welcome {
+            Down::Welcome {
+                token: Some(token), ..
+            } => token,
+            other => panic!("{other:?}"),
+        }
+    });
+
+    client.send(Command::Phone(PhoneCommand::Enable {
+        on: true,
+        network: Network::Everywhere,
+        browser: false,
+    }));
+    let bridge = wait(&mut events, |e| match e {
+        Event::Phone(PhoneEvent::Status { status })
+            if status.on && status.browser.is_none() && status.port != 0 =>
+        {
+            Some(status.port)
+        }
+        _ => None,
+    });
+    rt.block_on(async {
+        let mut ws = connect(bridge, &fingerprint).await;
+        let hello = Up::Hello {
+            token,
+            device: "Chrome on Windows".into(),
+            protocol: PROTOCOL,
+            app: "browser".into(),
+            computer: false,
+        };
+        say(&mut ws, &hello).await;
+        let denied = hear(&mut ws).await;
+        assert!(
+            matches!(&denied, Down::Denied { forget: false, .. }),
+            "a browser waits outside while browser access is off: {denied:?}"
+        );
+    });
+    engine.shutdown();
 }

@@ -2,12 +2,13 @@
 
 use gpui::{
     AnyElement, ClickEvent, Context, FontWeight, IntoElement, Pixels, Point, Window, div,
-    prelude::*, px,
+    prelude::*,
 };
 use hyprspace_proto::Permission;
 
 use super::Composer;
 use crate::assets::icon;
+use crate::zoom::px;
 use crate::{colors, widgets};
 
 pub fn permission_label(p: Permission) -> &'static str {

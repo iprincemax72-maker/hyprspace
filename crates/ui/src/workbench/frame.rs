@@ -3,12 +3,13 @@
 // 8px margin under its header, as the Tauri app padded its panes.
 
 use gpui::{
-    AnyElement, Context, DragMoveEvent, IntoElement, StyleRefinement, Window, div, prelude::*, px,
+    AnyElement, Context, DragMoveEvent, IntoElement, StyleRefinement, Window, div, prelude::*,
 };
 
 use crate::colors;
 use crate::root::{Root, View};
 use crate::slide::slide;
+use crate::zoom::px;
 
 /// Space around a terminal.
 const GAP: f32 = 8.;
@@ -139,7 +140,7 @@ impl Root {
             .on_drag_move(cx.listener(|r, e: &DragMoveEvent<DockDrag>, _, cx| {
                 let x: f32 = e.event.position.x.into();
                 let right: f32 = e.bounds.right().into();
-                r.state.dock.width = (right - x).clamp(DOCK_MIN, DOCK_MAX);
+                r.state.dock.width = ((right - x) / crate::zoom::zoom()).clamp(DOCK_MIN, DOCK_MAX);
                 cx.notify();
             }))
             .on_drop(cx.listener(|r, _: &DockDrag, _, _| r.save()))

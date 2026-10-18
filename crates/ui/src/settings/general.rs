@@ -3,12 +3,13 @@
 // opens a folder in. The first two are the composer's saved picks, so changing one here or in
 // the composer changes both.
 
-use gpui::{AnyElement, ClickEvent, Context, div, prelude::*, px};
+use gpui::{AnyElement, ClickEvent, Context, div, prelude::*};
 use hyprspace_proto::{Agent, Permission, Snooze};
 
 use super::controls::{group, row, row_with, text};
 use super::{Picker, Root};
 use crate::time::{left, now_ms};
+use crate::zoom::px;
 use crate::{colors, widgets};
 
 /// Each mode, most careful first: its name and what picking it means.

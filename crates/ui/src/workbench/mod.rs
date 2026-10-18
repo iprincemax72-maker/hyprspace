@@ -26,13 +26,28 @@ use crate::dock::{Dock, DockEvent};
 use crate::root::{Root, Screen};
 use crate::viewer::{Viewer, ViewerEvent};
 
-actions!(hyprspace, [ToggleDock, ToggleSidebar, ToggleTerminal]);
+actions!(
+    hyprspace,
+    [
+        ToggleDock,
+        ToggleSidebar,
+        ToggleTerminal,
+        ZoomIn,
+        ZoomOut,
+        ZoomReset
+    ]
+);
 
 pub fn bind_keys(cx: &mut gpui::App) {
     cx.bind_keys([
         KeyBinding::new("secondary-shift-g", ToggleDock, None),
         KeyBinding::new("secondary-shift-b", ToggleSidebar, None),
         KeyBinding::new("ctrl-`", ToggleTerminal, None),
+        KeyBinding::new("secondary-=", ZoomIn, None),
+        KeyBinding::new("secondary-+", ZoomIn, None),
+        KeyBinding::new("secondary-shift-=", ZoomIn, None),
+        KeyBinding::new("secondary--", ZoomOut, None),
+        KeyBinding::new("secondary-0", ZoomReset, None),
     ]);
 }
 
@@ -221,6 +236,27 @@ impl Root {
         self.state.sidebar_hidden = !self.state.sidebar_hidden;
         self.save();
         cx.notify();
+    }
+
+    pub(crate) fn zoom_in(&mut self, _: &ZoomIn, window: &mut Window, _: &mut Context<Self>) {
+        self.zoom_to(crate::zoom::step(self.state.appearance.zoom, true), window);
+    }
+
+    pub(crate) fn zoom_out(&mut self, _: &ZoomOut, window: &mut Window, _: &mut Context<Self>) {
+        self.zoom_to(crate::zoom::step(self.state.appearance.zoom, false), window);
+    }
+
+    pub(crate) fn zoom_reset(&mut self, _: &ZoomReset, window: &mut Window, _: &mut Context<Self>) {
+        self.zoom_to(1.0, window);
+    }
+
+    fn zoom_to(&mut self, z: f32, window: &mut Window) {
+        if z == self.state.appearance.zoom {
+            return;
+        }
+        self.state.appearance.zoom = z;
+        self.save();
+        self.apply_theme(window);
     }
 
     pub(crate) fn toggle_dock(&mut self, _: &ToggleDock, _: &mut Window, cx: &mut Context<Self>) {

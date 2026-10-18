@@ -8,13 +8,14 @@ use std::ops::Range;
 use gpui::{
     App, Bounds, ContentMask, ElementId, ElementInputHandler, Entity, GlobalElementId,
     HighlightStyle, Hsla, LayoutId, PaintQuad, Pixels, Point, ShapedLine, Style, TextAlign,
-    TextRun, UnderlineStyle, Window, fill, font, point, prelude::*, px, relative, size,
+    TextRun, UnderlineStyle, Window, fill, font, point, prelude::*, relative, size,
 };
 use hyprspace_theme::MONO;
 
 use super::{Editor, Layout, PAD, shape_plain};
 use crate::colors;
 use crate::viewer::code::{ROW, color, expand, shown_col};
+use crate::zoom::px;
 
 /// The editor's font size.
 pub const SIZE: f32 = 12.;

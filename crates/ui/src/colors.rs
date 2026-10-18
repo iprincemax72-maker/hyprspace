@@ -3,18 +3,22 @@
 // the current theme is a thread local rather than state threaded through every render function.
 
 use std::cell::Cell;
+use std::sync::RwLock;
 
-use gpui::{
-    BoxShadow, FontStyle, FontWeight, HighlightStyle, Hsla, WindowAppearance, point, px, rgba,
-};
+use gpui::{BoxShadow, FontStyle, FontWeight, HighlightStyle, Hsla, WindowAppearance, point, rgba};
 use hyprspace_proto::Agent;
 use hyprspace_proto::state::Scheme;
 use hyprspace_syntax::Kind;
 use hyprspace_theme::{Color, Theme, build};
 
+use crate::zoom::px;
+
 thread_local! {
     static CURRENT: Cell<Theme> = Cell::new(build("t3", true));
 }
+
+// terminals parse their output off the main thread, and answer color queries from there
+static SHARED: RwLock<Option<Theme>> = RwLock::new(None);
 
 /// Switches to theme `id` on its dark or light side, with blue and orange for added and removed
 /// lines when `blue_orange`.
@@ -24,6 +28,7 @@ pub fn set(id: &str, dark: bool, blue_orange: bool) {
         (t.diff_add, t.diff_del) = hyprspace_theme::blue_orange(dark);
     }
     CURRENT.with(|c| c.set(t));
+    *SHARED.write().unwrap_or_else(|e| e.into_inner()) = Some(t);
 }
 
 /// Whether `scheme` paints the dark side, given what the system is set to.
@@ -40,6 +45,13 @@ pub fn dark(scheme: Scheme, system: WindowAppearance) -> bool {
 
 pub fn theme() -> Theme {
     CURRENT.with(Cell::get)
+}
+
+pub fn shared_theme() -> Theme {
+    SHARED
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .unwrap_or_else(|| build("t3", true))
 }
 
 pub fn hsla(c: Color) -> Hsla {

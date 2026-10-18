@@ -4,13 +4,14 @@
 // this machine (`activity.rs`). This file holds the pieces both draw with.
 
 use gpui::{
-    AnyElement, ClickEvent, Context, Div, FontWeight, Hsla, IntoElement, div, prelude::*, px,
+    AnyElement, ClickEvent, Context, Div, FontWeight, Hsla, IntoElement, div, prelude::*, relative,
 };
 
 use super::{View, brand};
 use crate::assets::{icon, provider_mark};
 use crate::root::Root;
 use crate::time::now_ms;
+use crate::zoom::px;
 use crate::{colors, widgets};
 
 /// 1.2k, 3.4M, 5.0B.
@@ -161,6 +162,21 @@ pub(super) fn big(value: String, unit: &str, color: Hsla) -> Div {
                 .text_size(px(13.))
                 .text_color(colors::text3())
                 .child(unit.to_string()),
+        )
+}
+
+pub(super) fn bar(pct: f32, fill: Hsla) -> Div {
+    div()
+        .h(px(6.))
+        .rounded_full()
+        .bg(colors::ink(0.08))
+        .overflow_hidden()
+        .child(
+            div()
+                .h_full()
+                .rounded_full()
+                .w(relative(pct.clamp(0., 100.) / 100.))
+                .bg(fill),
         )
 }
 

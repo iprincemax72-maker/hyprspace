@@ -44,6 +44,18 @@ cargo test --workspace --locked
 
 CI runs it on Windows and macOS (`.github/workflows/check.yml`).
 
+## Measuring
+
+Before and after work meant to make the app faster, run the measurements in a release build:
+
+```bash
+cargo test --release -p hyprspace-ui perf_ -- --ignored --nocapture
+```
+
+Each prints what it measured: terminal parsing and grid snapshots, a long reply parsed whole and
+while it streams, and a long thread replayed. Each also fails past a generous budget. They are
+skipped in the check, because timings on shared CI machines and in debug builds don't mean much.
+
 ## Building packages
 
 ```bash

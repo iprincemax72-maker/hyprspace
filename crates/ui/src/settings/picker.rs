@@ -1,7 +1,7 @@
 // The open dropdown, dropped under its field: the agent, permission and opener on General, the
 // terminal font on Appearance, and each agent's model and effort on Agents.
 
-use gpui::{AnyElement, ClickEvent, Context, SharedString, Window, div, point, prelude::*, px};
+use gpui::{AnyElement, ClickEvent, Context, SharedString, Window, div, point, prelude::*};
 use hyprspace_proto::state::Pick;
 
 use super::agents::effort_name;
@@ -9,6 +9,7 @@ use super::appearance::{SYSTEM_UI, mono_families};
 use super::general::MODES;
 use super::{Picker, Root};
 use crate::widgets;
+use crate::zoom::px;
 
 const PERMISSION_MENU: f32 = 360.;
 

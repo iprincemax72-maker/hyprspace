@@ -68,6 +68,7 @@ impl Default for AppState {
 pub struct PhonePrefs {
     pub on: bool,
     pub network: crate::phone::Network,
+    pub browser: bool,
 }
 
 /// How long a thread sits untouched before it settles by itself, after T3 Code's auto-settle.
@@ -203,6 +204,8 @@ pub struct Thread {
     pub order: Option<i64>,
     pub queue: Vec<Prompt>,
     pub resume_at: Option<u64>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub draft: String,
     pub parent: Option<u64>,
     pub pinned: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -235,6 +238,7 @@ impl Default for Thread {
             order: None,
             queue: Vec::new(),
             resume_at: None,
+            draft: String::new(),
             parent: None,
             pinned: None,
             worktree: None,
@@ -359,6 +363,7 @@ pub struct Appearance {
     pub diff_colors: DiffColors,
     /// Menus, panels and rows ease in and out. Off, they snap.
     pub animations: bool,
+    pub zoom: f32,
 }
 
 impl Default for Appearance {
@@ -372,6 +377,7 @@ impl Default for Appearance {
             ui_font: String::new(),
             diff_colors: DiffColors::RedGreen,
             animations: true,
+            zoom: 1.0,
         }
     }
 }
@@ -404,10 +410,11 @@ pub struct ComposerPrefs {
     pub permission: Permission,
     pub picks: Vec<Pick>,
     /// Structured sessions are switched on (Settings, General), which lets the composer start a
-    /// thread as one. New threads still start in a terminal. On by default; saved under a new
-    /// name, since the old `structured` was written as off before anyone could have chosen it.
+    /// thread as one. On by default; saved under a new name, since the old `structured` was
+    /// written as off before anyone could have chosen it.
     #[serde(rename = "structuredThreads")]
     pub structured: bool,
+    pub terminal: bool,
 }
 
 impl Default for ComposerPrefs {
@@ -417,6 +424,7 @@ impl Default for ComposerPrefs {
             permission: Permission::default(),
             picks: Vec::new(),
             structured: true,
+            terminal: false,
         }
     }
 }

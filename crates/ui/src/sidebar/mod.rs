@@ -26,7 +26,7 @@ use gpui::{
     AnyElement, ClickEvent, Context, DispatchPhase, DragMoveEvent, Entity, ExternalPaths,
     Focusable, FontWeight, HitboxBehavior, IntoElement, ListAlignment, ListOffset, ListState,
     MouseButton, MouseDownEvent, Pixels, ScrollWheelEvent, Subscription, Transformation,
-    WeakEntity, Window, canvas, div, list, percentage, prelude::*, px,
+    WeakEntity, Window, canvas, div, list, percentage, prelude::*,
 };
 use hyprspace_proto::{Space, Thread};
 use hyprspace_theme::MONO;
@@ -41,6 +41,7 @@ use crate::time::now_ms;
 use crate::update::Phase;
 use crate::widgets::tip_text;
 use crate::workbench::PaneDrag;
+use crate::zoom::px;
 
 pub const MIN_WIDTH: f32 = 200.;
 pub const MAX_WIDTH: f32 = 480.;
@@ -295,7 +296,7 @@ impl SidebarView {
         } else {
             left * (1. - (-dt / EASE).exp())
         };
-        self.list.scroll_by(px(step));
+        self.list.scroll_by(gpui::px(step));
         self.pending.set(left - step);
         window.request_animation_frame();
     }
@@ -692,18 +693,7 @@ impl Root {
                     .child(rows),
             )
             .child(self.foot(cx))
-            .child(
-                div()
-                    .id("sidebar-resize")
-                    .absolute()
-                    .top_0()
-                    .bottom_0()
-                    .right(px(-3.))
-                    .w(px(6.))
-                    .cursor_col_resize()
-                    .hover(|s| s.bg(colors::accent().opacity(0.45)))
-                    .on_drag(SidebarDrag, |_, _, _, cx| cx.new(|_| DragGhost)),
-            )
+            .child(resize_edge())
             .into_any_element()
     }
 
@@ -960,6 +950,19 @@ impl Root {
             })
             .into_any_element()
     }
+}
+
+pub(crate) fn resize_edge() -> impl IntoElement {
+    div()
+        .id("sidebar-resize")
+        .absolute()
+        .top_0()
+        .bottom_0()
+        .right(px(-3.))
+        .w(px(6.))
+        .cursor_col_resize()
+        .hover(|s| s.bg(colors::accent().opacity(0.45)))
+        .on_drag(SidebarDrag, |_, _, _, cx| cx.new(|_| DragGhost))
 }
 
 /// What follows the pointer while the sidebar edge is dragged: nothing visible.

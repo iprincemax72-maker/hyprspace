@@ -76,7 +76,7 @@ impl EntityInputHandler for TerminalView {
         _: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
         let grid = self.grid?;
-        let (row, col) = self.emu.cursor().map_or((0, 0), |c| (c.row, c.col));
+        let (row, col) = self.emu().cursor().map_or((0, 0), |c| (c.row, c.col));
         Some(grid.cell_bounds(row, col, 1))
     }
 

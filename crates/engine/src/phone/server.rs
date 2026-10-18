@@ -9,6 +9,7 @@ use std::time::Duration;
 use futures::channel::mpsc;
 use futures::{SinkExt, StreamExt};
 use hyprspace_proto::phone::{Down, INPUT, OUTPUT, Up, frame, unframe};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::{Instant, timeout};
@@ -22,8 +23,8 @@ use super::Phone;
 use super::squeeze::Squeeze;
 use super::store::Identity;
 
-const HANDSHAKE: Duration = Duration::from_secs(10);
-const WAITING: usize = 16;
+pub(super) const HANDSHAKE: Duration = Duration::from_secs(10);
+pub(super) const WAITING: usize = 16;
 const SILENCE: Duration = Duration::from_secs(60);
 /// The biggest message a phone sends is a file of up to 20 MB, as base64.
 const MAX_MESSAGE: usize = 28 << 20;
@@ -59,6 +60,13 @@ async fn serve(phone: Phone, tcp: TcpStream, tls: TlsAcceptor, permit: OwnedSema
     let Ok(Ok(stream)) = timeout(HANDSHAKE, tls.accept(tcp)).await else {
         return;
     };
+    super::web::handle(phone, stream, permit, false).await;
+}
+
+pub(super) async fn accept<S>(phone: Phone, stream: S, permit: OwnedSemaphorePermit, web: bool)
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     let config = WebSocketConfig::default()
         .max_message_size(Some(MAX_MESSAGE))
         .max_frame_size(Some(MAX_MESSAGE));
@@ -80,7 +88,7 @@ async fn serve(phone: Phone, tcp: TcpStream, tls: TlsAcceptor, permit: OwnedSema
     };
     drop(permit);
     let (tx, mut rx) = mpsc::unbounded();
-    let conn = match phone.admit(first, tx) {
+    let conn = match phone.admit(first, tx, web) {
         Ok((conn, welcome)) => {
             if send(&mut sink, &welcome).await.is_err() {
                 phone.left(conn);

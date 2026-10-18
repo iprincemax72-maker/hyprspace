@@ -2,12 +2,13 @@
 // working copies of each part (onboarding/demos.tsx); these are still pictures in the same
 // shapes, drawn from the theme's tokens so they follow every theme and side.
 
-use gpui::{AnyElement, Div, FontWeight, Hsla, IntoElement, div, prelude::*, px, relative};
+use gpui::{AnyElement, Div, FontWeight, Hsla, IntoElement, div, prelude::*, relative};
 use hyprspace_proto::Agent;
 use hyprspace_theme::MONO;
 
 use crate::assets::{icon, mark};
 use crate::colors;
+use crate::zoom::px;
 
 /// The frame every sketch sits in (`.dm-rail`, `.dm-composer`...).
 fn panel(w: f32) -> Div {
@@ -533,8 +534,8 @@ pub fn usage() -> AnyElement {
                 .child(mark(Agent::Claude, 14., brand))
                 .child("Claude"),
         )
-        .child(window("Session", 42., "2h 16m", brand))
-        .child(window("All models", 18., "3d 4h", brand))
+        .child(window("Current session", 42., "2h 16m", brand))
+        .child(window("This week", 18., "3d 4h", brand))
         .into_any_element()
 }
 

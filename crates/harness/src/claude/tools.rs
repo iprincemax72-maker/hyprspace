@@ -24,6 +24,80 @@ fn hunk(old: &str, new: &str) -> String {
     out
 }
 
+const CONTEXT: usize = 3;
+
+// found by the old text, or by the new one when the CLI already made the edit
+fn numbered(text: &str, old: &str, new: &str) -> Option<String> {
+    if old.is_empty() {
+        return None;
+    }
+    let (at, len, before) = match text.find(old) {
+        Some(at) => (at, old.len(), true),
+        None => (
+            text.find(new).filter(|_| !new.is_empty())?,
+            new.len(),
+            false,
+        ),
+    };
+    let start = text[..at].rfind('\n').map_or(0, |i| i + 1);
+    let end = text[at + len..]
+        .find('\n')
+        .map_or(text.len(), |i| at + len + i);
+    let (head, tail) = (&text[start..at], &text[at + len..end]);
+    let (old, new) = if before {
+        (text[start..end].to_string(), format!("{head}{new}{tail}"))
+    } else {
+        (format!("{head}{old}{tail}"), text[start..end].to_string())
+    };
+    let lines: Vec<&str> = text.lines().collect();
+    let first = text[..start].matches('\n').count();
+    let last = first + text[start..end].lines().count().max(1);
+    let above = &lines[first.saturating_sub(CONTEXT)..first.min(lines.len())];
+    let below = &lines[last.min(lines.len())..(last + CONTEXT).min(lines.len())];
+    let (olds, news) = (old.lines().count(), new.lines().count());
+    let line = first - above.len() + 1;
+    let mut out = format!(
+        "@@ -{line},{} +{line},{} @@",
+        above.len() + olds + below.len(),
+        above.len() + news + below.len()
+    );
+    let mut push = |mark: char, l: &str| {
+        out.push('\n');
+        out.push(mark);
+        out.push_str(l);
+    };
+    above.iter().for_each(|l| push(' ', l));
+    old.lines().for_each(|l| push('-', l));
+    new.lines().for_each(|l| push('+', l));
+    below.iter().for_each(|l| push(' ', l));
+    Some(out)
+}
+
+fn read(path: &str) -> Option<String> {
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|t| t.replace("\r\n", "\n"))
+}
+
+fn edits(path: &str, pairs: &[(String, String)]) -> String {
+    let mut text = read(path);
+    let mut hunks = Vec::new();
+    for (old, new) in pairs {
+        hunks.push(
+            text.as_deref()
+                .and_then(|t| numbered(t, old, new))
+                .unwrap_or_else(|| hunk(old, new)),
+        );
+        if let Some(t) = text
+            .as_mut()
+            .filter(|t| !old.is_empty() && t.contains(old.as_str()))
+        {
+            *t = t.replacen(old.as_str(), new, 1);
+        }
+    }
+    hunks.join("\n")
+}
+
 fn change(path: String, kind: ChangeKind, diff: String) -> Tool {
     Tool::Edit {
         changes: vec![FileChange { path, kind, diff }],
@@ -38,24 +112,23 @@ pub(crate) fn decode(name: &str, input: &Value) -> Tool {
         "Read" => Tool::Read {
             path: field(input, "file_path"),
         },
-        "Edit" => change(
-            field(input, "file_path"),
-            ChangeKind::Update,
-            hunk(&field(input, "old_string"), &field(input, "new_string")),
-        ),
+        "Edit" => {
+            let path = field(input, "file_path");
+            let pair = (field(input, "old_string"), field(input, "new_string"));
+            let diff = edits(&path, &[pair]);
+            change(path, ChangeKind::Update, diff)
+        }
         "MultiEdit" => {
-            let hunks: Vec<String> = input["edits"]
+            let pairs: Vec<(String, String)> = input["edits"]
                 .as_array()
                 .map(|a| a.as_slice())
                 .unwrap_or_default()
                 .iter()
-                .map(|e| hunk(&field(e, "old_string"), &field(e, "new_string")))
+                .map(|e| (field(e, "old_string"), field(e, "new_string")))
                 .collect();
-            change(
-                field(input, "file_path"),
-                ChangeKind::Update,
-                hunks.join("\n"),
-            )
+            let path = field(input, "file_path");
+            let diff = edits(&path, &pairs);
+            change(path, ChangeKind::Update, diff)
         }
         // Write replaces the whole file; whether it existed is not on the wire
         "Write" => change(
@@ -181,6 +254,33 @@ mod tests {
             panic!("not an edit")
         };
         assert_eq!(changes[0].diff, "@@\n-x\n+y\n@@\n-1\n+2");
+    }
+
+    #[test]
+    fn edits_get_line_numbers_and_context_from_the_file() {
+        let text = "1\n2\n3\n4\nfn a() {}\n6\n7\n8\n9\n";
+        let want = "@@ -2,7 +2,8 @@\n 2\n 3\n 4\n-fn a() {}\n+fn b() {\n+}\n 6\n 7\n 8";
+        assert_eq!(numbered(text, "a() {}", "b() {\n}").as_deref(), Some(want));
+        let edited = text.replace("a() {}", "b() {\n}");
+        assert_eq!(
+            numbered(&edited, "a() {}", "b() {\n}").as_deref(),
+            Some(want)
+        );
+        assert_eq!(
+            numbered("x\ny", "x", "z").as_deref(),
+            Some("@@ -1,2 +1,2 @@\n-x\n+z\n y")
+        );
+        assert_eq!(numbered(text, "gone", "nowhere"), None);
+        assert_eq!(numbered(text, "", "new"), None);
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.rs");
+        std::fs::write(&path, "a\r\nb\r\nc\r\n").unwrap();
+        let pairs = [("a".into(), "A".into()), ("c".into(), "C".into())];
+        assert_eq!(
+            edits(&path.to_string_lossy(), &pairs),
+            "@@ -1,3 +1,3 @@\n-a\n+A\n b\n c\n@@ -1,3 +1,3 @@\n A\n b\n-c\n+C"
+        );
         assert_eq!(
             decode("mcp__linear__search", &json!({"q": "bug"})),
             Tool::Mcp {

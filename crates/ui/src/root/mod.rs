@@ -5,6 +5,7 @@
 mod delegate;
 mod render;
 mod settle;
+mod switch;
 mod threads;
 pub mod titlebar;
 mod worktree;
@@ -73,6 +74,7 @@ pub enum Action {
     CopyTitle(u64),
     CopyPath(u64),
     CopyConversation(u64),
+    Switch(u64),
     Worktree(u64, hyprspace_proto::git::WorktreeAction),
 }
 
@@ -186,6 +188,7 @@ pub struct Root {
     pub(crate) activity: HashMap<u64, Activity>,
     /// When each terminal thread's current turn began, for the sidebar's running count.
     pub(crate) turns: HashMap<u64, Instant>,
+    pub(crate) switching: HashMap<u64, switch::Switch>,
     /// The sidebar, drawn through a cached view of its own (`crate::sidebar::SidebarView`).
     pub(crate) sidebar_view: Entity<crate::sidebar::SidebarView>,
     /// The sidebar's search box, which narrows the spaces and threads to what matches.
@@ -198,6 +201,7 @@ pub struct Root {
     _git_pump: Task<()>,
     /// When `git_poll` last read every open space, not just the one on screen.
     git_polled: Option<Instant>,
+    watched: Vec<PathBuf>,
     /// The phone bridge as the UI sees it (`crate::phone`).
     pub(crate) phone: crate::phone::PhoneState,
     pub(crate) machines: crate::machines::Machines,
@@ -216,7 +220,7 @@ pub(crate) struct Activity {
 impl Root {
     pub fn new(
         client: Client,
-        mut events: Events,
+        mut engine: Events,
         open: Option<PathBuf>,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -236,6 +240,19 @@ impl Root {
                 }
             }),
         ];
+        let feeds = cx.default_global::<crate::terminal::Feeds>().clone();
+        let (routed, mut events) = futures::channel::mpsc::unbounded();
+        cx.background_executor()
+            .spawn(async move {
+                while let Some(event) = engine.next().await {
+                    if let Some(event) = feeds.route(event)
+                        && routed.unbounded_send(event).is_err()
+                    {
+                        break;
+                    }
+                }
+            })
+            .detach();
         let pump = cx.spawn_in(window, async move |this, cx| {
             while let Some(first) = events.next().await {
                 let mut batch = vec![first];
@@ -267,16 +284,21 @@ impl Root {
         // the sidebar's branches and change counts, kept fresh while the app runs
         subs.push(cx.observe_window_activation(window, |r, window, _| {
             if window.is_window_active() {
-                r.git_poll(Duration::from_secs(5));
+                r.git_poll(Duration::from_secs(600));
             }
         }));
         let git_pump = cx.spawn(async move |this, cx| {
+            let mut ticks = 0u32;
             loop {
                 cx.background_executor()
                     .timer(Duration::from_secs(15))
                     .await;
+                ticks += 1;
                 let alive = this.update(cx, |r, cx| {
-                    r.git_poll(Duration::from_secs(60));
+                    // the engine watches each folder; this only catches what a watcher misses
+                    if ticks.is_multiple_of(4) {
+                        r.git_poll(Duration::from_secs(600));
+                    }
                     r.tidy_threads(cx);
                 });
                 if alive.is_err() {
@@ -342,6 +364,7 @@ impl Root {
             away: false,
             activity: HashMap::new(),
             turns: HashMap::new(),
+            switching: HashMap::new(),
             search,
             sidebar_view,
             git: HashMap::new(),
@@ -349,6 +372,7 @@ impl Root {
             _ticker: None,
             _git_pump: git_pump,
             git_polled: None,
+            watched: Vec::new(),
             phone: Default::default(),
             machines: Default::default(),
             _phone_pump: phone_pump,
@@ -411,6 +435,16 @@ impl Root {
                 }
             }
             Event::Peer(e) => self.peer_event(e, window, cx),
+            Event::Failed { id, .. }
+                if self
+                    .sessions
+                    .get(&id)
+                    .is_some_and(|t| self.switching.contains_key(t)) =>
+            {
+                if let Some(&thread) = self.sessions.get(&id) {
+                    self.switch_back(thread, cx);
+                }
+            }
             Event::Failed { id, message } => match self.view_of(id) {
                 Some(View::Structured(v)) => v.update(cx, |v, cx| v.fail(message, cx)),
                 Some(View::Terminal(v)) => v.update(cx, |v, cx| v.fail(message, cx)),
@@ -450,6 +484,7 @@ impl Root {
                 let Some(&thread) = self.sessions.get(&id) else {
                     return;
                 };
+                self.switch_seen(thread, cx);
                 if let Some(Thread {
                     kind: ThreadKind::Terminal { run: Some(run), .. },
                     ..
@@ -461,7 +496,14 @@ impl Root {
             }
             Event::TerminalAgent { id, agent, model } => {
                 if let Some(&thread) = self.sessions.get(&id) {
-                    self.terminal_agent(thread, agent, model);
+                    match agent {
+                        Some(hyprspace_proto::Agent::Codex) => self.switch_seen(thread, cx),
+                        None => self.switch_quit(thread, cx),
+                        _ => {}
+                    }
+                    if self.sessions.contains_key(&id) {
+                        self.terminal_agent(thread, agent, model);
+                    }
                     cx.notify();
                 }
             }
@@ -525,10 +567,33 @@ impl Root {
         if all {
             self.git_polled = Some(Instant::now());
         }
-        let here = self.current_space();
+        let watched = self.git_folders(None);
+        if watched != self.watched {
+            self.client
+                .send(Command::Folder(hyprspace_proto::FolderCommand::Watch {
+                    cwds: watched.clone(),
+                }));
+            self.watched = watched.clone();
+        }
+        let folders = if all {
+            watched
+        } else {
+            self.git_folders(self.current_space())
+        };
+        for cwd in folders {
+            self.client
+                .send(Command::Folder(hyprspace_proto::FolderCommand::GitStatus {
+                    cwd,
+                }));
+        }
+    }
+
+    /// The local folders the sidebar shows git for: each open space's, and a thread's own when
+    /// it runs somewhere else. With `only`, that space's alone.
+    fn git_folders(&self, only: Option<u64>) -> Vec<PathBuf> {
         let mut folders: Vec<PathBuf> = Vec::new();
         for s in self.state.spaces.iter().filter(|s| {
-            !s.archived && !s.folded && s.machine.is_none() && (all || Some(s.id) == here)
+            !s.archived && !s.folded && s.machine.is_none() && only.is_none_or(|id| s.id == id)
         }) {
             folders.extend(s.cwd.clone());
             for t in s.threads.iter().filter(|t| t.active()) {
@@ -540,12 +605,7 @@ impl Root {
         }
         folders.sort();
         folders.dedup();
-        for cwd in folders {
-            self.client
-                .send(Command::Folder(hyprspace_proto::FolderCommand::GitStatus {
-                    cwd,
-                }));
-        }
+        folders
     }
 
     /// Whether anything in the sidebar is counting.
@@ -726,6 +786,8 @@ impl Root {
         );
         crate::settings::set_terminal_font(a);
         crate::slide::set_animations(a.animations);
+        crate::zoom::set(a.zoom);
+        window.set_rem_size(gpui::px(16. * crate::zoom::zoom()));
         window.refresh();
     }
 

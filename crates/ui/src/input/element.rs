@@ -5,11 +5,12 @@
 use gpui::{
     App, AvailableSpace, Bounds, ElementId, ElementInputHandler, Entity, GlobalElementId, LayoutId,
     PaintQuad, Pixels, ScrollHandle, SharedString, Style, TextRun, TextStyle, UnderlineStyle,
-    Window, WrappedLine, fill, point, prelude::*, px, relative, size,
+    Window, WrappedLine, fill, point, prelude::*, relative, size,
 };
 
 use super::TextInput;
 use crate::colors;
+use crate::zoom::px;
 
 pub struct TextElement {
     input: Entity<TextInput>,

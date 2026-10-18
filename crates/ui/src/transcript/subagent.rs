@@ -3,14 +3,13 @@
 // subagent's own tool calls and then its report; the prompt it was given waits behind its own
 // small disclosure. After zeron's subagent chip, drawn in our tokens.
 
-use gpui::{
-    AnyElement, ClickEvent, Context, FontWeight, IntoElement, div, prelude::*, px, relative,
-};
+use gpui::{AnyElement, ClickEvent, Context, FontWeight, IntoElement, div, prelude::*, relative};
 
 use super::model::{AgentState, Item, Subagent};
 use super::render::{fold_head, fold_key, tool_card, twist, unfold};
 use super::{TranscriptView, tool};
 use crate::assets::icon;
+use crate::zoom::px;
 use crate::{colors, markdown, spinner};
 
 pub fn card(ix: usize, a: &Subagent, cx: &mut Context<TranscriptView>) -> AnyElement {
@@ -174,7 +173,7 @@ fn body(ix: usize, a: &Subagent, cx: &mut Context<TranscriptView>) -> AnyElement
             .text_size(px(13.5))
             .line_height(relative(1.6))
             .text_color(colors::text1())
-            .child(markdown::render(b, &format!("agent{ix}")))
+            .child(markdown::render(b, &format!("agent{ix}"), &[]))
     });
     div()
         .pt(px(6.))

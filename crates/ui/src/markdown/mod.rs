@@ -4,6 +4,7 @@
 // text. A streaming reply is simply parsed again as it grows; replies are short enough.
 
 mod code;
+mod fade;
 mod render;
 pub mod select;
 
@@ -11,6 +12,7 @@ use std::ops::Range;
 
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
+pub use fade::Fade;
 pub use render::render;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -349,8 +351,83 @@ pub fn parse(source: &str) -> Vec<Block> {
     }
 }
 
+#[derive(Default)]
+pub struct Stream {
+    len: usize,
+    cut: usize,
+    head: Vec<Block>,
+}
+
+impl Stream {
+    pub fn parse(&mut self, text: &str) -> Vec<Block> {
+        if text.len() < self.len {
+            *self = Self::default();
+        }
+        self.len = text.len();
+        let cut = settled(text, self.cut);
+        if cut > self.cut {
+            self.head.extend(parse(&text[self.cut..cut]));
+            self.cut = cut;
+        }
+        let mut out = self.head.clone();
+        out.extend(parse(&text[self.cut..]));
+        out
+    }
+}
+
+// a blank line ends a block for good outside a fence, before a line that can't continue one
+fn settled(text: &str, from: usize) -> usize {
+    let mut fenced = false;
+    let mut cut = from;
+    let mut at = from;
+    let mut blank = false;
+    for line in text[from..].split_inclusive('\n') {
+        let start = at;
+        at += line.len();
+        if !line.ends_with('\n') {
+            break;
+        }
+        let body = line.trim_end();
+        let lead = body.trim_start();
+        if lead.starts_with("```") || lead.starts_with("~~~") {
+            fenced = !fenced;
+        }
+        if !fenced && blank && fresh(line) {
+            cut = start;
+        }
+        blank = !fenced && body.is_empty();
+    }
+    cut
+}
+
+fn fresh(line: &str) -> bool {
+    let Some(first) = line.chars().next() else {
+        return false;
+    };
+    if first.is_whitespace() || matches!(first, '>' | '|' | '-' | '*' | '+' | '`' | '~') {
+        return false;
+    }
+    let digits = line.chars().take_while(char::is_ascii_digit).count();
+    !(digits > 0 && matches!(line[digits..].chars().next(), Some('.' | ')')))
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_streamed_reply_parses_the_same_as_the_whole() {
+        let doc = "# Title\n\nA paragraph with **bold**\nand a soft break.\n\n- one\n- two\n\n  still two\n\n3. three\n4. four\n\n> quoted\n\n> more quote\n\n```rust\nfn a() {}\n\nfn b() {}\n```\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nLast words.\n";
+        let mut stream = Stream::default();
+        for end in (0..=doc.len()).filter(|e| doc.is_char_boundary(*e)) {
+            assert_eq!(
+                stream.parse(&doc[..end]),
+                parse(&doc[..end]),
+                "at {end}: {:?}",
+                &doc[..end]
+            );
+        }
+        assert!(stream.cut > 0, "something settled");
+    }
+
     use super::*;
 
     fn para(blocks: &[Block]) -> &Inline {
@@ -413,5 +490,30 @@ mod tests {
         );
         let b = parse("- a\n- b **bo");
         assert!(matches!(&b[0], Block::List { items, .. } if items.len() == 2));
+    }
+
+    #[test]
+    #[ignore = "a measurement: cargo test --release -p hyprspace-ui perf_ -- --ignored --nocapture"]
+    fn perf_streaming_a_long_reply() {
+        let para = "Some **bold** text with `code` and a [link](http://x) that runs on.\n\n- one\n- two\n\n```rust\nfn main() {}\n```\n\n";
+        let mut doc = String::new();
+        while doc.len() < 64 * 1024 {
+            doc.push_str(para);
+        }
+        let t = std::time::Instant::now();
+        std::hint::black_box(parse(&doc));
+        let whole = t.elapsed();
+        let mut stream = Stream::default();
+        let steps: Vec<usize> = (1..=200).map(|i| doc.len() * i / 200).collect();
+        let t = std::time::Instant::now();
+        for &end in &steps {
+            let end = (end..=doc.len())
+                .find(|e| doc.is_char_boundary(*e))
+                .unwrap();
+            std::hint::black_box(stream.parse(&doc[..end]));
+        }
+        let frame = t.elapsed() / steps.len() as u32;
+        eprintln!("markdown: {whole:?} for 64 KB whole, {frame:?} a frame while it streams");
+        assert!(frame < whole, "streaming costs as much as a full parse");
     }
 }

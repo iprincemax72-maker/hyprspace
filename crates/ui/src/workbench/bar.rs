@@ -5,7 +5,6 @@
 
 use gpui::{
     AnyElement, ClickEvent, Context, FontWeight, IntoElement, MouseButton, Window, div, prelude::*,
-    px,
 };
 use hyprspace_proto::{Opener, ThreadKind};
 use hyprspace_theme::MONO;
@@ -16,6 +15,7 @@ use crate::assets::{icon, mark};
 use crate::colors;
 use crate::root::{Action, Root};
 use crate::widgets;
+use crate::zoom::px;
 
 /// A bar button: a square that lifts on hover, or stays lifted while its menu is open.
 fn bar_button(id: &'static str, name: &str, on: bool) -> gpui::Stateful<gpui::Div> {

@@ -2,12 +2,13 @@
 // output and, for file edits, the diff. A run of calls in a row folds into one line that counts
 // them, after zeron's "Ran 4 commands · read 1 file". Approval prompts reuse the same summary.
 
-use gpui::{AnyElement, FontWeight, IntoElement, SharedString, div, prelude::*, px};
+use gpui::{AnyElement, FontWeight, IntoElement, SharedString, div, prelude::*};
 use hyprspace_proto::Tool;
 use hyprspace_proto::run::{ChangeKind, FileChange};
 use hyprspace_theme::MONO;
 
 use crate::colors;
+use crate::zoom::px;
 
 /// One line saying what a tool does or did.
 pub fn label(tool: &Tool) -> String {

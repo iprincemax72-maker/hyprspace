@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use gpui::{
     AnyElement, ClickEvent, Context, Focusable, FontWeight, IntoElement, MouseButton, Window, div,
-    prelude::*, px,
+    prelude::*,
 };
 use hyprspace_proto::Permission;
 use hyprspace_proto::state::Pick;
@@ -17,6 +17,7 @@ use hyprspace_theme::MONO;
 use super::model_menu::Host as _;
 use super::{Composer, ComposerEvent, PickFor, model_menu, pickers};
 use crate::assets::{icon, mark};
+use crate::zoom::px;
 use crate::{attach, colors, time, widgets};
 
 /// The picked model's label, or "Default".

@@ -7,9 +7,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use chrono::{Datelike, Duration as Days, Local, NaiveDate};
-use gpui::{
-    AnyElement, ClickEvent, Context, Entity, FontWeight, Hsla, div, prelude::*, px, relative,
-};
+use gpui::{AnyElement, ClickEvent, Context, Entity, FontWeight, Hsla, div, prelude::*, relative};
 use hyprspace_proto::Agent;
 use hyprspace_proto::usage::{ModelUsage, ProviderUsage};
 
@@ -20,6 +18,7 @@ use super::page::{grouped, short};
 use crate::colors;
 use crate::root::Root;
 use crate::widgets;
+use crate::zoom::px;
 
 /// How far back the figures look.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]

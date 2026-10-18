@@ -98,6 +98,33 @@ fn status_of(json: &str) -> Option<AgentState> {
     }
 }
 
+pub fn nearest_agent() -> Option<u32> {
+    let mut sys = System::new();
+    sys.refresh_processes_specifics(ProcessesToUpdate::All, ProcessRefreshKind::new());
+    let mut pid = sysinfo::get_current_pid().ok()?;
+    for _ in 0..12 {
+        let parent = sys.process(pid)?.parent()?;
+        sys.refresh_processes_specifics(
+            ProcessesToUpdate::Some(&[parent]),
+            ProcessRefreshKind::new().with_cmd(UpdateKind::Always),
+        );
+        let p = sys.process(parent)?;
+        let mut cmd: Vec<String> = p
+            .cmd()
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        if cmd.is_empty() {
+            cmd.push(p.name().to_string_lossy().into_owned());
+        }
+        if agent_of(&cmd).is_some() {
+            return Some(parent.as_u32());
+        }
+        pid = parent;
+    }
+    None
+}
+
 /// A view of the machine's processes, refreshed on each look.
 pub struct Processes {
     sys: System,

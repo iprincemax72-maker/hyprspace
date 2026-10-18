@@ -10,6 +10,8 @@ mod net;
 mod server;
 pub(crate) mod squeeze;
 mod store;
+mod tailscale;
+mod web;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -34,6 +36,9 @@ use mirror::{Mirror, Ring, Sent};
 pub(crate) use net::SERVICE;
 use store::Store;
 
+/// What a browser's pairing proof is made over, in place of a certificate's fingerprint.
+const WEB: &str = "browser";
+const BROWSER_OFF: &str = "Browser access is off. Turn it on in HyprSpace's Settings, Phone.";
 /// How long a pairing code works.
 const PAIR_FOR: Duration = Duration::from_secs(5 * 60);
 /// Wrong codes a pairing takes before it stops working.
@@ -65,6 +70,10 @@ struct Hub {
     port: u16,
     fingerprint: String,
     error: Option<String>,
+    browser: bool,
+    browser_url: Option<String>,
+    browser_error: Option<String>,
+    served: bool,
     tasks: Vec<JoinHandle<()>>,
     /// The bridge's announcement on the local network, while it listens.
     mdns: Option<mdns_sd::ServiceDaemon>,
@@ -141,6 +150,10 @@ impl Phone {
             port: 0,
             fingerprint: String::new(),
             error: None,
+            browser: false,
+            browser_url: None,
+            browser_error: None,
+            served: false,
             tasks: Vec::new(),
             mdns: None,
             pairing: None,
@@ -162,7 +175,11 @@ impl Phone {
 
     pub fn command(&self, cmd: PhoneCommand) {
         match cmd {
-            PhoneCommand::Enable { on, network } => self.enable(on, network),
+            PhoneCommand::Enable {
+                on,
+                network,
+                browser,
+            } => self.enable(on, network, browser),
             PhoneCommand::Board { mut board } => {
                 let mut hub = self.hub();
                 board.present = hub.board.present;
@@ -238,13 +255,22 @@ impl Phone {
         }
     }
 
-    fn enable(&self, on: bool, network: Network) {
+    fn enable(&self, on: bool, network: Network, browser: bool) {
         let mut hub = self.hub();
-        if hub.on == on && hub.network == network && (on || hub.tasks.is_empty()) {
+        if hub.on == on
+            && hub.network == network
+            && hub.browser == browser
+            && (on || hub.tasks.is_empty())
+        {
             return;
         }
         hub.stop();
         hub.network = network;
+        hub.browser = browser;
+        if hub.served && !(on && browser) {
+            hub.served = false;
+            tokio::task::spawn_blocking(tailscale::unserve);
+        }
         if on {
             match self.start(&mut hub) {
                 Ok(()) => hub.on = true,
@@ -294,6 +320,9 @@ impl Phone {
             hub.tasks
                 .push(tokio::spawn(server::listen(self.clone(), l, tls.clone())));
         }
+        if hub.browser {
+            self.start_browser(hub);
+        }
         let me = self.clone();
         hub.tasks.push(tokio::spawn(async move {
             let mut every = tokio::time::interval(FRAME);
@@ -305,9 +334,50 @@ impl Phone {
         Ok(())
     }
 
+    fn start_browser(&self, hub: &mut Hub) {
+        let local = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+            .and_then(|l| l.set_nonblocking(true).map(|_| l))
+            .and_then(|l| {
+                Ok((
+                    l.local_addr()?.port(),
+                    tokio::net::TcpListener::from_std(l)?,
+                ))
+            });
+        let (port, listener) = match local {
+            Ok(l) => l,
+            Err(e) => {
+                hub.browser_error = Some(format!("Couldn't open the page's port: {e}"));
+                return;
+            }
+        };
+        hub.tasks
+            .push(tokio::spawn(web::listen(self.clone(), listener)));
+        // a test or a test copy on loopback serves the page there and leaves Tailscale alone
+        if net::pinned().is_some() {
+            hub.browser_url = Some(format!("http://127.0.0.1:{port}/"));
+            return;
+        }
+        let me = self.clone();
+        hub.tasks.push(tokio::spawn(async move {
+            let served = tokio::task::spawn_blocking(move || tailscale::serve(port))
+                .await
+                .unwrap_or_else(|_| Err("Tailscale didn't answer.".into()));
+            let mut hub = me.hub();
+            match served {
+                Ok(Some(url)) => {
+                    hub.served = true;
+                    hub.browser_url = Some(url);
+                }
+                Ok(None) => {}
+                Err(e) => hub.browser_error = Some(e),
+            }
+            hub.send_status();
+        }));
+    }
+
     /// The first message on a connection: a hello from a paired phone or a pairing. Returns
     /// the connection's id and what to tell the phone, or why it isn't let in.
-    fn admit(&self, up: Up, tx: UnboundedSender<Down>) -> Result<(u64, Down), Down> {
+    fn admit(&self, up: Up, tx: UnboundedSender<Down>, web: bool) -> Result<(u64, Down), Down> {
         let denied = |message: &str| Down::Denied {
             message: message.into(),
             forget: false,
@@ -341,6 +411,9 @@ impl Phone {
                 if protocol != PROTOCOL {
                     return Err(denied(&outdated(protocol)));
                 }
+                if app == WEB && !hub.browser {
+                    return Err(denied(BROWSER_OFF));
+                }
                 let device = clip(&device);
                 match hub.store.check(&token, &device, &clip(&app), now) {
                     Some(id) => (protocol, id, None, None),
@@ -366,11 +439,16 @@ impl Phone {
                     return Err(denied(&outdated(protocol)));
                 }
                 let fingerprint = hub.fingerprint.clone();
+                let over: &[&str] = match (web, hub.browser) {
+                    (true, _) => &[WEB],
+                    (false, true) => &[&fingerprint, WEB],
+                    (false, false) => &[&fingerprint],
+                };
                 let key = match &mut hub.pairing {
                     Some(p) if p.expires > now => {
                         let key = [&p.long, &p.code]
                             .into_iter()
-                            .find(|key| same(&prove(key, &fingerprint), &proof))
+                            .find(|key| over.iter().any(|o| same(&prove(key, o), &proof)))
                             .cloned();
                         if key.is_none() {
                             p.tries += 1;
@@ -426,6 +504,11 @@ impl Phone {
                 proof,
             },
         ))
+    }
+
+    pub(super) fn serves_page(&self) -> bool {
+        let hub = self.hub();
+        hub.on && hub.browser
     }
 
     fn left(&self, conn: u64) {
@@ -914,6 +997,8 @@ impl Hub {
             },
             error: self.error.clone(),
             devices: self.store.devices(|id| online.contains(id)),
+            browser: self.browser_url.clone().filter(|_| self.on),
+            browser_error: self.browser_error.clone().filter(|_| self.on),
         };
         self.to_ui(PhoneEvent::Status { status });
     }
@@ -1108,6 +1193,8 @@ impl Hub {
         self.on = false;
         self.port = 0;
         self.error = None;
+        self.browser_url = None;
+        self.browser_error = None;
         self.pairing = None;
         self.send_pairing();
     }

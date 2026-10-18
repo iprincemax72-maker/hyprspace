@@ -117,7 +117,7 @@ pub fn announce(port: u16, fingerprint: &str, name: &str) -> Option<mdns_sd::Ser
     Some(daemon)
 }
 
-fn pinned() -> Option<IpAddr> {
+pub(super) fn pinned() -> Option<IpAddr> {
     std::env::var("HYPRSPACE_PHONE_BIND").ok()?.parse().ok()
 }
 

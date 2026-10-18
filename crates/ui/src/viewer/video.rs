@@ -8,7 +8,7 @@ use gpui::{
     AnyElement, Bounds, Context, CursorStyle, Div, EventEmitter, FocusHandle, Focusable,
     FontWeight, KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit,
     Pixels, RenderImage, ScrollWheelEvent, Stateful, StyledImage, Window, canvas, div, img, point,
-    prelude::*, px,
+    prelude::*,
 };
 use hyprspace_media::{Player, State};
 
@@ -16,6 +16,7 @@ use crate::assets::icon;
 use crate::colors;
 use crate::viewer::lightbox::fitted;
 use crate::viewer::pan::Pan;
+use crate::zoom::px;
 
 const SKIP: f64 = 5.;
 /// A seek while paused shows its frame a beat later, so frames are still read for this long.
@@ -366,7 +367,8 @@ impl Render for Video {
         }
 
         let view = window.viewport_size();
-        let (vw, vh) = (f32::from(view.width), f32::from(view.height));
+        let z = crate::zoom::zoom();
+        let (vw, vh) = (f32::from(view.width) / z, f32::from(view.height) / z);
         let size = self.shown.as_ref().map(|i| {
             let s = i.size(0);
             (s.width.0 as u32, s.height.0 as u32)
@@ -376,8 +378,8 @@ impl Render for Video {
         self.pan.center = point(px(vw / 2.), px(home + fh / 2.));
         self.pan.ease(window);
         let (w, h) = (fw * self.pan.zoom, fh * self.pan.zoom);
-        let left = vw / 2. + f32::from(self.pan.offset.x) - w / 2.;
-        let top = home + fh / 2. + f32::from(self.pan.offset.y) - h / 2.;
+        let left = vw / 2. + f32::from(self.pan.offset.x) / z - w / 2.;
+        let top = home + fh / 2. + f32::from(self.pan.offset.y) / z - h / 2.;
         let bar_w = fw.max(MIN_BAR_W).min(vw - 24.);
         let dragging = self.pan.dragging();
         let scrim = colors::hsla(colors::theme().shadow);

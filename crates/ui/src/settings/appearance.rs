@@ -7,7 +7,7 @@ use std::cell::RefCell;
 
 use gpui::{
     AnyElement, ClickEvent, Context, Div, FontWeight, Hsla, Rgba, SharedString, div,
-    linear_color_stop, linear_gradient, prelude::*, px,
+    linear_color_stop, linear_gradient, prelude::*,
 };
 use hyprspace_proto::state::{Appearance, DiffColors, Scheme};
 use hyprspace_theme::{SANS, TERM, THEMES, ThemeInfo};
@@ -15,6 +15,7 @@ use hyprspace_theme::{SANS, TERM, THEMES, ThemeInfo};
 use super::controls::{group, row, step};
 use super::{Picker, Root};
 use crate::assets::icon;
+use crate::zoom::px;
 use crate::{colors, widgets};
 
 const SCHEMES: [(Scheme, &str, &str); 3] = [

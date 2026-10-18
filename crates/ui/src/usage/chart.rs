@@ -12,7 +12,7 @@ use gpui::{
     AnyElement, App, Bounds, ClickEvent, Context, DispatchPhase, Entity, FontWeight,
     HitboxBehavior, Hsla, IntoElement, MouseMoveEvent, PathBuilder, Pixels, Point, SharedString,
     TextAlign, TextRun, Window, canvas, div, fill, linear_color_stop, linear_gradient, point,
-    prelude::*, px, size,
+    prelude::*, size,
 };
 use hyprspace_proto::Agent;
 use hyprspace_proto::usage::ProviderUsage;
@@ -22,6 +22,7 @@ use super::page::short;
 use crate::colors;
 use crate::root::Root;
 use crate::widgets;
+use crate::zoom::px;
 
 const HEIGHT: f32 = 280.;
 /// Past this many days a dot on every day is clutter.

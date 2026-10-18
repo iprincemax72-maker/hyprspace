@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use gpui::{
     AnyElement, ClickEvent, Context, FontWeight, Hsla, IntoElement, UniformListScrollHandle, div,
-    prelude::*, px, uniform_list,
+    prelude::*, uniform_list,
 };
 use hyprspace_proto::folder::{DirEntry, GitStatus};
 use hyprspace_proto::{Client, Command, FolderCommand, Pane};
@@ -20,6 +20,7 @@ use super::{Dock, DockEvent, empty};
 use crate::assets::icon;
 use crate::colors;
 use crate::widgets::{self, tip};
+use crate::zoom::px;
 
 const ROW: f32 = 26.;
 const INDENT: f32 = 12.;

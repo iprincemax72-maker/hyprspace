@@ -10,7 +10,7 @@ const HOUR_MS: i64 = 3_600_000;
 
 /// Claude's window keys in the order the meter shows them, with the words its own UI uses.
 const WINDOWS: &[(&str, &str, i64)] = &[
-    ("five_hour", "Session · 5h", 5 * HOUR_MS),
+    ("five_hour", "Current session", 5 * HOUR_MS),
     ("seven_day", "This week", 168 * HOUR_MS),
     ("seven_day_opus", "Opus this week", 168 * HOUR_MS),
     ("seven_day_sonnet", "Sonnet this week", 168 * HOUR_MS),
@@ -106,7 +106,7 @@ mod tests {
         let ids: Vec<_> = r.windows.iter().map(|w| w.id.as_str()).collect();
         assert_eq!(ids, ["five_hour", "seven_day", "seven_day_fable"]);
         let five = &r.windows[0];
-        assert_eq!(five.label, "Session · 5h");
+        assert_eq!(five.label, "Current session");
         assert_eq!(five.percent, 42.0);
         assert_eq!(five.resets_at, Some(1_790_000_000_000));
         assert_eq!(five.window_ms, Some(5 * HOUR_MS));

@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 
 use gpui::{
     AnyElement, App, Context, FontWeight, IntoElement, SharedString, Window, anchored, deferred,
-    div, point, prelude::*, px,
+    div, point, prelude::*,
 };
 use hyprspace_proto::Agent;
 use hyprspace_theme::MONO;
@@ -17,6 +17,7 @@ use hyprspace_theme::MONO;
 use crate::assets::{icon, mark};
 use crate::colors;
 use crate::root::{Rename, Root};
+use crate::zoom::px;
 
 /// How long the pointer rests on a row before its card shows.
 const AFTER: Duration = Duration::from_millis(450);

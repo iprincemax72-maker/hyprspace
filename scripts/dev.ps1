@@ -103,7 +103,7 @@ foreach ($dir in 'crates', 'apps') {
     $watchers += $w
     foreach ($kind in 'Changed', 'Created', 'Deleted', 'Renamed') {
         $subs += Register-ObjectEvent $w $kind -MessageData $flag -Action {
-            if ($Event.SourceEventArgs.FullPath -match '\.(rs|toml|svg|ttf|png|json)$') {
+            if ($Event.SourceEventArgs.FullPath -match '\.(rs|toml|svg|ttf|png|json|js|css|html)$') {
                 $Event.MessageData.At = Get-Date
             }
         }

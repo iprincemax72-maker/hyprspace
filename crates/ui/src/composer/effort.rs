@@ -13,7 +13,7 @@ use std::rc::Rc;
 use gpui::{
     AnyElement, Bounds, ClickEvent, Context, DispatchPhase, FontWeight, Hsla, IntoElement,
     KeyDownEvent, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Window,
-    canvas, div, linear_color_stop, linear_gradient, prelude::*, px, relative,
+    canvas, div, linear_color_stop, linear_gradient, prelude::*, relative,
 };
 
 use super::model_menu::{Choice, Host, ModelMenu, Spec, close, to_models};
@@ -22,6 +22,7 @@ use crate::assets::icon;
 use crate::colors;
 use crate::pace::Looping;
 use crate::slide::Glide;
+use crate::zoom::px;
 
 /// The card is a fixed width, so the track's length is known before it is first painted.
 pub const CARD: f32 = 260.;

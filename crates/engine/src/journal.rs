@@ -137,6 +137,26 @@ pub fn load(file: &Path) -> Vec<Entry> {
         .collect()
 }
 
+pub fn import(file: &Path, conversation: &str) {
+    let Some(all) = hyprspace_harness::claude::history(None, conversation) else {
+        return;
+    };
+    let have = load(file)
+        .iter()
+        .filter(|e| matches!(e, Entry::Prompt { .. }))
+        .count();
+    let mut seen = 0;
+    let journal = Journal::open(file);
+    for entry in all.into_iter().skip_while(|e| {
+        if matches!(e, Entry::Prompt { .. }) {
+            seen += 1;
+        }
+        seen <= have
+    }) {
+        journal.record(entry);
+    }
+}
+
 pub fn trim(file: &Path, keep: usize) {
     let Ok(f) = File::open(file) else {
         return;

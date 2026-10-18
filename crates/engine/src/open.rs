@@ -57,7 +57,7 @@ fn find_in(path: &OsStr, names: &[&str]) -> Option<PathBuf> {
     })
 }
 
-fn on_path(names: &[&str]) -> Option<PathBuf> {
+pub(crate) fn on_path(names: &[&str]) -> Option<PathBuf> {
     find_in(&std::env::var_os("PATH")?, names)
 }
 

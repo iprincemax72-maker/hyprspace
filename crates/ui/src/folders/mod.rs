@@ -9,7 +9,7 @@ use std::path::{MAIN_SEPARATOR, Path, PathBuf};
 use gpui::{
     AnyElement, AppContext, ClickEvent, Context, Entity, EventEmitter, FocusHandle, Focusable,
     FontWeight, IntoElement, KeyBinding, MouseButton, Render, ScrollHandle, SharedString,
-    Subscription, Window, actions, anchored, deferred, div, point, prelude::*, px, relative,
+    Subscription, Window, actions, anchored, deferred, div, point, prelude::*, relative,
 };
 use hyprspace_proto::folder::DirEntry;
 use hyprspace_proto::{Client, Command, FolderCommand};
@@ -17,6 +17,7 @@ use hyprspace_proto::{Client, Command, FolderCommand};
 use crate::assets::icon;
 use crate::colors;
 use crate::input::{InputEvent, TextInput};
+use crate::zoom::px;
 
 mod sources;
 use sources::Stage;

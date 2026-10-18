@@ -63,17 +63,37 @@ how Claude is driven.
   whole. Codex resumes, finds the prompt's turn with `thread/turns/list` and calls `thread/revert`.
   The prompt is found by text, not by an id in the journal, because the phone reads journal
   entries and an id there would change its wire.
-- **Changes apply in place when the CLI allows it.** Claude takes a model or permission change as
-  a `set_model` or `set_permission_mode` control request. Bypass, a 1M window, fast mode and effort
-  still restart the CLI, because they are launch flags. Codex sends `model`, `approvalPolicy` and
-  `sandboxPolicy` on the next `turn/start` once they differ from what the thread opened with.
+- **Changes apply in place.** Claude takes a model, 1M window included, as `set_model`, a
+  permission as `set_permission_mode`, and effort and fast mode as `apply_flag_settings`. Every
+  launch passes `--allow-dangerously-skip-permissions`, or the CLI refuses a later switch to
+  Bypass. Fast mode goes off as `false`, because `null` leaves the launch's `--settings` file in
+  force. A change the CLI refuses shows as an error in the thread. Codex sends `effort` on every
+  `turn/start`, and `model`, `approvalPolicy` and `sandboxPolicy` once they differ from what the
+  thread opened with.
 - **Subagents report under their call.** Claude frames with a `parent_tool_use_id` become
   `SubagentTool`, `SubagentToolDone` and `SubagentText` keyed by the Agent call, never folded into
   the main reply. A background subagent can finish after the run; the CLI then takes a turn of its
   own, reported as `Woke` followed by a normal run.
-- **Edits carry unified diffs.** Codex sends real ones. Claude's `Edit`, `MultiEdit` and `Write`
-  inputs become hunks with a bare `@@`, because the CLI sends no line numbers. Tool output is
-  capped at 8 KB for display.
+- **Edits carry unified diffs.** Codex sends real ones. Claude sends only the old and new text,
+  so the harness reads the file and finds the old text, or the new text when the CLI has already
+  made the edit, for line numbers and 3 lines of context. A text it can't find, and every
+  `Write`, gets a hunk with a bare `@@`. Tool output is capped at 8 KB for display.
+- **A thread can switch between structured and terminal.** Both kinds keep the same `Launch`, so
+  the other side resumes the same conversation. The old CLI is closed first, and a busy thread
+  can't switch. A structured side opens at once with no prompt, because a bad `--resume` only
+  fails when the CLI starts, and counts as up if it hasn't failed after 4 seconds. A terminal
+  side counts as up once Claude's SessionStart hook names the conversation, or once Codex shows
+  up under the shell. If the new side fails, quits before it is up, or a terminal isn't up
+  within 20 seconds, the thread goes back to what it was. Until then the menu shows how long is
+  left. Messages sent in
+  the terminal aren't in our journal. For Claude, the switch appends what Claude saved past the
+  journal's last prompt, counted by prompts, read from its session file the same way the live
+  stream is. For Codex the transcript says the messages aren't shown.
+- **A message the harness doesn't know is named in `protocol.log`** in the state folder, once per
+  name while the app runs, with no content. Read it after a Claude Code or Codex update. The
+  known lists in `crates/harness/src/protocol.rs` come from the Agent SDK's `sdk.d.ts` for the
+  matching `claudeCodeVersion` in its `package.json`, and from `codex app-server
+  generate-json-schema`.
 - **A `.cmd` shim runs through `cmd /c`.** Killing `cmd` can leave the node child behind. The
   native `claude.exe` is unaffected.
 

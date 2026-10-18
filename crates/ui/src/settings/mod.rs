@@ -19,7 +19,7 @@ use std::rc::Rc;
 
 use gpui::{
     AnyElement, App, Bounds, ClickEvent, Context, FocusHandle, FontWeight, IntoElement,
-    KeyDownEvent, Pixels, Point, SharedString, Window, div, prelude::*, px,
+    KeyDownEvent, Pixels, Point, SharedString, Window, div, prelude::*,
 };
 use hyprspace_proto::Agent;
 use hyprspace_proto::state::ComposerPrefs;
@@ -28,6 +28,8 @@ pub(crate) use appearance::{set_terminal_font, terminal_font, terminal_line_heig
 
 use crate::assets::icon;
 use crate::root::Root;
+use crate::sidebar::{MAX_WIDTH, MIN_WIDTH, resize_edge};
+use crate::zoom::px;
 use crate::{colors, widgets};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -262,16 +264,17 @@ impl Root {
             .child(widgets::keycap("Esc"))
             .on_click(cx.listener(|r, _: &ClickEvent, window, cx| r.close_settings(window, cx)));
         div()
+            .relative()
             .flex_none()
-            .w(px(220.))
+            .w(px(self.state.sidebar_width.clamp(MIN_WIDTH, MAX_WIDTH)))
             .h_full()
             .flex()
             .flex_col()
             .gap(px(2.))
             .p(px(10.))
             .border_r_1()
-            .border_color(colors::border1())
-            .bg(colors::surface1())
+            .border_color(colors::border0())
+            .bg(colors::bg())
             .child(
                 div()
                     .px(px(10.))
@@ -284,6 +287,7 @@ impl Root {
             .children(items)
             .child(div().flex_1())
             .child(back)
+            .child(resize_edge())
             .into_any_element()
     }
 

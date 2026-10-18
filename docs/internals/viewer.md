@@ -8,7 +8,14 @@ open-in all ride `Command::Folder` / `Event::Folder`, each answer naming the pat
 - **One git lock.** The engine runs them on the blocking pool behind one lock, because two quick
   ticks would otherwise race for git's `index.lock`.
 - Change paths are relative to the repo root, so stage and diff work when the dock follows a
-  subfolder. The dock polls git every four seconds while it's out.
+  subfolder.
+- **Git status follows the files** (`engine/src/watch.rs`). The UI names the folders it shows
+  (`FolderCommand::Watch`) and the engine watches each one's repo, reading its status again once
+  changes go quiet for 400 ms, and at most every 2 seconds while they don't. Writes under
+  `.git/objects` and `.git/logs` don't count; an overflowed watcher counts as a change everywhere.
+  The timed reads that remain (the dock every 30 seconds, the sidebar every minute and every 10
+  minutes) only catch what a watcher misses, such as a worktree's branch, which lives in the main
+  repo's `.git`.
 - **Opening things outside the app** (`engine/src/open.rs`): VS Code or Cursor with
   `--goto file:line:col`, Explorer or Finder for folders. Only paths that exist reach a launcher.
   `HYPRSPACE_OPEN_LOG` appends each launch's command line to a file instead of running it, so

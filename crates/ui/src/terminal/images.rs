@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use gpui::{
     AnyElement, Context, ObjectFit, Pixels, Point, Size, StyledImage, Task, anchored, deferred,
-    div, img, point, prelude::*, px,
+    div, img, point, prelude::*,
 };
 use hyprspace_proto::{Agent, Command, Launch};
 
@@ -18,6 +18,7 @@ use super::links::{self, Target};
 use super::mouse::Open;
 use super::{TerminalEvent, TerminalView};
 use crate::colors;
+use crate::zoom::px;
 
 /// How long the pointer rests before the preview opens, so a sweep across output doesn't flash.
 const WAIT: Duration = Duration::from_millis(200);
@@ -129,15 +130,21 @@ impl Peek {
         let (w, h) = fit(self.size);
         // the card goes below right of the pointer, flipped near the window's edges
         let card = (w + 14., h + 36.);
-        let x = if f32::from(self.at.x) + 16. + card.0 > f32::from(viewport.width) - 8. {
-            f32::from(self.at.x) - 16. - card.0
+        let z = crate::zoom::zoom();
+        let (at_x, at_y) = (f32::from(self.at.x) / z, f32::from(self.at.y) / z);
+        let (view_w, view_h) = (
+            f32::from(viewport.width) / z,
+            f32::from(viewport.height) / z,
+        );
+        let x = if at_x + 16. + card.0 > view_w - 8. {
+            at_x - 16. - card.0
         } else {
-            f32::from(self.at.x) + 16.
+            at_x + 16.
         };
-        let y = if f32::from(self.at.y) + 16. + card.1 > f32::from(viewport.height) - 8. {
-            f32::from(self.at.y) - 16. - card.1
+        let y = if at_y + 16. + card.1 > view_h - 8. {
+            at_y - 16. - card.1
         } else {
-            f32::from(self.at.y) + 16.
+            at_y + 16.
         };
         let size = self.size.map(|(w, h)| format!("{w} \u{d7} {h}"));
         let open = if cfg!(target_os = "macos") {
@@ -403,8 +410,8 @@ impl TerminalView {
 
     /// One screen row's text, without the rest of its wrapped line.
     fn row_text(&self, row: usize) -> String {
-        let line = self.emu.line_text(row);
-        let here = self.emu.grid_point(row, 0).line;
+        let line = self.emu().line_text(row);
+        let here = self.emu().grid_point(row, 0).line;
         line.text
             .chars()
             .zip(&line.points)
@@ -416,7 +423,7 @@ impl TerminalView {
     /// The markers in Claude's input box as drawn: the `❯` line right under a rule, down to the
     /// next rule. None when no input box is on screen (a permission dialog, a picker).
     fn prompt_markers(&self) -> Option<HashSet<u32>> {
-        let rows = self.emu.size().1 as usize;
+        let rows = self.emu().size().1 as usize;
         let rule = |t: &str| t.chars().filter(|c| matches!(c, '─' | '━' | '═')).count() >= 8;
         for y in (1..rows).rev() {
             let text = self.row_text(y);

@@ -6,13 +6,14 @@
 
 use gpui::{
     AnyElement, ClickEvent, Context, IntoElement, MouseButton, Window, WindowControlArea, div,
-    prelude::*, px, svg,
+    prelude::*, svg,
 };
 
 use super::{Root, Screen};
 use crate::sidebar::{MAX_WIDTH, MIN_WIDTH};
 use crate::slide::slide;
 use crate::workbench::ToggleSidebar;
+use crate::zoom::px;
 use crate::{colors, widgets};
 
 pub const HEIGHT: f32 = 40.;

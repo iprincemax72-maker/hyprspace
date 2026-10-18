@@ -2,7 +2,7 @@
 // with, which are the composer's saved picks. Agents that are not installed share one row at the
 // foot, with a way to look again after installing one.
 
-use gpui::{AnyElement, ClickEvent, Context, FontWeight, div, prelude::*, px};
+use gpui::{AnyElement, ClickEvent, Context, FontWeight, div, prelude::*};
 use hyprspace_proto::Command;
 use hyprspace_proto::agents::{AgentCatalog, AgentInfo};
 
@@ -10,6 +10,7 @@ use super::controls::{block, row_with, section, text};
 use super::{Picker, Root};
 use crate::assets::mark;
 use crate::composer::effort_label;
+use crate::zoom::px;
 use crate::{colors, widgets};
 
 pub(super) fn model_label(catalog: &AgentCatalog, model: &str) -> String {

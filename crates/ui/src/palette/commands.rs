@@ -4,7 +4,7 @@
 
 use gpui::{
     AnyElement, AppContext, Context, Entity, Focusable, IntoElement, Window, anchored, deferred,
-    div, point, prelude::*, px,
+    div, point, prelude::*,
 };
 use hyprspace_proto::Opener;
 use hyprspace_proto::state::{DockTab, Scheme};
@@ -13,6 +13,7 @@ use hyprspace_theme::THEMES;
 use super::{Glyph, IN_TERMINALS, Item, Palette, PaletteEvent, TogglePalette};
 use crate::root::{Action, Root, Screen, View};
 use crate::settings::{TABS, Tab};
+use crate::zoom::px;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Cmd {
@@ -23,6 +24,9 @@ pub enum Cmd {
     ToggleDock,
     ToggleSidebar,
     ToggleTerminal,
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
     GitPanel,
     Scheme(Scheme),
     Theme(&'static str),
@@ -89,6 +93,11 @@ impl Root {
                 Cmd::ToggleSidebar,
             )
             .hint("Ctrl+Shift+B"),
+        );
+        out.push(Item::new("View", "Zoom in", Glyph::Icon("plus"), Cmd::ZoomIn).hint("Ctrl++"));
+        out.push(Item::new("View", "Zoom out", Glyph::Icon("minus"), Cmd::ZoomOut).hint("Ctrl+-"));
+        out.push(
+            Item::new("View", "Actual size", Glyph::Icon("search"), Cmd::ZoomReset).hint("Ctrl+0"),
         );
         out.push(
             Item::new(
@@ -283,6 +292,9 @@ impl Root {
             Cmd::ToggleTerminal => {
                 self.toggle_terminal(&crate::workbench::ToggleTerminal, window, cx)
             }
+            Cmd::ZoomIn => self.zoom_in(&crate::workbench::ZoomIn, window, cx),
+            Cmd::ZoomOut => self.zoom_out(&crate::workbench::ZoomOut, window, cx),
+            Cmd::ZoomReset => self.zoom_reset(&crate::workbench::ZoomReset, window, cx),
             Cmd::GitPanel => {
                 self.state.dock.open = true;
                 self.state.dock.tab = DockTab::Git;

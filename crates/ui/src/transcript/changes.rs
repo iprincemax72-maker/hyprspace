@@ -1,4 +1,4 @@
-use gpui::{AnyElement, ClickEvent, Context, FontWeight, SharedString, div, prelude::*, px};
+use gpui::{AnyElement, ClickEvent, Context, FontWeight, SharedString, div, prelude::*};
 use hyprspace_proto::run::RunFile;
 use hyprspace_proto::{Command, Pane};
 use hyprspace_theme::MONO;
@@ -6,6 +6,7 @@ use hyprspace_theme::MONO;
 use super::model::{Item, Undo};
 use super::{TranscriptEvent, TranscriptView};
 use crate::assets::icon;
+use crate::zoom::px;
 use crate::{colors, widgets};
 
 const FIRST: usize = 3;

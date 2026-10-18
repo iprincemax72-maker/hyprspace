@@ -125,3 +125,26 @@ fonts (Geist, and the terminal's Nerd Font build).
 - The wire fixtures in `app/src/test/resources/wire` are written by the proto test
   `the_phone_reads_and_writes_these_exact_lines`. The app's tests read every desktop message and
   write the phone's own byte for byte, so the two sides can't drift apart unnoticed.
+
+## Browsers
+
+Settings, Phone, Browser lets a browser open HyprSpace. It speaks the phone's protocol, so the
+board, transcripts, terminal frames and asks need nothing new.
+
+- **On the local network, from the bridge.** The bridge's own TLS port serves the page
+  (`engine/web/`, built into the binary) next to the WebSocket, which it tells apart by the
+  upgrade header. No authority vouches for that certificate, so the browser warns once.
+- **On the tailnet, through Tailscale.** When this computer is signed in to Tailscale, the engine
+  also listens on a loopback port and runs `tailscale serve --bg --https=47823` against it, so
+  the browser gets a real certificate on the machine's `ts.net` name and no warning. Turning the
+  switch off runs `tailscale serve --https=47823 off`. A tailnet without HTTPS certificates gets
+  the admin link Tailscale printed. `HYPRSPACE_PHONE_BIND` leaves Tailscale alone, for tests.
+- **Pairing by code.** JavaScript can't see a certificate, so a browser's proof is HMAC-SHA256 with
+  the typed code over the word `browser`. The code still never crosses the wire, but unlike the
+  phone's proof it isn't bound to the certificate: someone who got a browser past the warning
+  with their own certificate during pairing could relay it. The token sits in the page's
+  `localStorage` and shows in the device list as a browser, revoked like a phone.
+- **No build step.** The page is plain ES modules with no dependencies, so a change to it is a
+  rebuild of the engine and nothing else. `transcript.js` folds journal entries the way
+  `model/Transcript.kt` does.
+- It only works while HyprSpace runs, like the phone.

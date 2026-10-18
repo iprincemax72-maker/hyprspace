@@ -39,6 +39,7 @@ impl Root {
         self.client.send(Command::Phone(PhoneCommand::Enable {
             on: p.on,
             network: p.network,
+            browser: p.browser,
         }));
     }
 

@@ -3,8 +3,10 @@
 
 use std::borrow::Cow;
 
-use gpui::{AssetSource, Hsla, SharedString, Svg, prelude::*, px, svg};
+use gpui::{AssetSource, Hsla, SharedString, Svg, prelude::*, svg};
 use hyprspace_proto::Agent;
+
+use crate::zoom::px;
 
 macro_rules! files {
     ($($path:literal),* $(,)?) => {

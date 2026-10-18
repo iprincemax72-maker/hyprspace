@@ -7,12 +7,13 @@
 use gpui::{
     App, Bounds, Font, FontFallbacks, FontFeatures, FontStyle, FontWeight, Hsla, PaintQuad, Pixels,
     Point, ShapedLine, SharedString, TextAlign, TextRun, UnderlineStyle, Window, fill, font, point,
-    px, size,
+    size,
 };
 
 use super::emulator::{Cell, CellColor, Cursor, Mark, Shape};
 use super::{cell_color, glyphs};
 use crate::colors::{self, hsla, theme};
+use crate::zoom::px;
 
 pub const PAD_X: f32 = 18.0;
 pub const PAD_TOP: f32 = 12.0;
@@ -84,11 +85,14 @@ pub fn measure(bounds: Bounds<Pixels>, window: &mut Window) -> Grid {
     let cell_w = ts.em_advance(id, font_size).unwrap_or(px(size * 0.6));
     // xterm's row: the font's own line box times the line height setting
     let natural = f32::from(ts.ascent(id, font_size)) + f32::from(ts.descent(id, font_size)).abs();
-    let line_h = px((natural * crate::settings::terminal_line_height())
-        .round()
-        .max(size));
-    let w = f32::from(bounds.size.width) - 2.0 * PAD_X - BAR_W;
-    let h = f32::from(bounds.size.height) - PAD_TOP - PAD_BOTTOM;
+    let z = crate::zoom::zoom();
+    let line_h = gpui::px(
+        (natural * crate::settings::terminal_line_height())
+            .round()
+            .max(size * z),
+    );
+    let w = f32::from(bounds.size.width) - (2.0 * PAD_X + BAR_W) * z;
+    let h = f32::from(bounds.size.height) - (PAD_TOP + PAD_BOTTOM) * z;
     Grid {
         bounds,
         origin: point(bounds.left() + px(PAD_X), bounds.top() + px(PAD_TOP)),
@@ -118,15 +122,17 @@ pub fn bar(grid: &Grid, history: usize, offset: usize) -> Option<Bar> {
     );
     let total = (history + grid.rows as usize) as f32;
     let track_h = f32::from(track.size.height);
-    let thumb_h = (grid.rows as f32 / total * track_h).max(24.0).min(track_h);
+    let thumb_h = (grid.rows as f32 / total * track_h)
+        .max(24.0 * crate::zoom::zoom())
+        .min(track_h);
     // offset counts up from the live bottom; the thumb's top counts down from the top
     let from_top = (history - offset.min(history)) as f32 / history as f32;
     let y = from_top * (track_h - thumb_h);
     Some(Bar {
         track,
         thumb: Bounds::new(
-            point(track.left() + px(2.), track.top() + px(y)),
-            size(px(BAR_W - 4.), px(thumb_h)),
+            point(track.left() + px(2.), track.top() + gpui::px(y)),
+            size(px(BAR_W - 4.), gpui::px(thumb_h)),
         ),
     })
 }

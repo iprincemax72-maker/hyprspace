@@ -9,12 +9,13 @@ use std::path::PathBuf;
 use gpui::{
     AnyElement, Context, CursorStyle, EventEmitter, FocusHandle, Focusable, KeyDownEvent,
     MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit, ScrollWheelEvent,
-    StyledImage, Window, div, img, point, prelude::*, px,
+    StyledImage, Window, div, img, point, prelude::*,
 };
 
 use crate::assets::icon;
 use crate::colors;
 use crate::viewer::pan::Pan;
+use crate::zoom::px;
 
 /// The share of the window an image fills when it opens. A smaller one shows at its own size.
 const FIT: (f32, f32) = (0.86, 0.78);
@@ -100,13 +101,14 @@ impl Render for Lightbox {
             window.defer(cx, move |window, cx| window.focus(&focus, cx));
         }
         let view = window.viewport_size();
-        let (vw, vh) = (f32::from(view.width), f32::from(view.height));
+        let z = crate::zoom::zoom();
+        let (vw, vh) = (f32::from(view.width) / z, f32::from(view.height) / z);
         self.pan.center = point(view.width / 2., view.height / 2.);
         self.pan.ease(window);
         let (fw, fh) = fitted(self.size, (vw, vh));
         let (w, h) = (fw * self.pan.zoom, fh * self.pan.zoom);
-        let left = vw / 2. + f32::from(self.pan.offset.x) - w / 2.;
-        let top = vh / 2. + f32::from(self.pan.offset.y) - h / 2.;
+        let left = vw / 2. + f32::from(self.pan.offset.x) / z - w / 2.;
+        let top = vh / 2. + f32::from(self.pan.offset.y) / z - h / 2.;
         let dragging = self.pan.dragging();
         let scrim = colors::hsla(colors::theme().shadow);
         let close = div()

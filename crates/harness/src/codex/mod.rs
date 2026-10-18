@@ -455,6 +455,7 @@ impl Actor {
     }
 
     fn request(&mut self, id: Value, method: &str, params: Value) {
+        crate::protocol::codex(method);
         let tool = match method {
             "item/commandExecution/requestApproval" => Tool::Command {
                 command: text(&params["command"]),
@@ -506,6 +507,7 @@ impl Actor {
     }
 
     async fn notification(&mut self, method: &str, params: Value) {
+        crate::protocol::codex(method);
         // subagents run as their own threads on the same server; their traffic is not ours
         if params["threadId"]
             .as_str()

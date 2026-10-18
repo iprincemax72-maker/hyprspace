@@ -50,7 +50,7 @@ impl TerminalView {
 
     /// Copies the selection. False when nothing is selected.
     pub(super) fn copy(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(text) = self.emu.selection_text() else {
+        let Some(text) = self.emu().selection_text() else {
             return false;
         };
         cx.write_to_clipboard(ClipboardItem::new_string(text));
@@ -109,7 +109,7 @@ impl TerminalView {
     }
 
     pub(super) fn paste_text(&mut self, text: &str, cx: &mut Context<Self>) {
-        let bytes = paste_bytes(text, self.emu.bracketed_paste());
+        let bytes = paste_bytes(text, self.emu().bracketed_paste());
         self.input(bytes, cx);
     }
 }

@@ -2,7 +2,7 @@
 // QR code a phone pairs with, and the phones paired so far. The copy says exactly what a phone
 // gets and how it travels, since this is the one way into the app from another device.
 
-use gpui::{AnyElement, ClickEvent, Context, FontWeight, div, prelude::*, px};
+use gpui::{AnyElement, ClickEvent, Context, FontWeight, div, prelude::*};
 use hyprspace_proto::Command;
 use hyprspace_proto::phone::{Network, PhoneCommand};
 
@@ -10,10 +10,12 @@ use super::Root;
 use super::controls::{group, row, text};
 use crate::assets::icon;
 use crate::time::{ago, local, now_ms};
+use crate::zoom::px;
 use crate::{colors, widgets};
 
 /// The Android app's releases, tagged `android-v`, each with a `HyprSpace-android.apk`.
-const APP: &str = "https://github.com/xxashxx-svg/hyprspace/releases?q=android-v&expanded=true";
+const APP: &str =
+    "https://github.com/xxashxx-svg/hyprspace/releases?q=%22for+Android%22&expanded=true";
 /// The newest APK, which android.yml replaces on every phone release.
 const APK: &str = "https://github.com/xxashxx-svg/hyprspace/releases/download/android-latest/HyprSpace-android.apk";
 
@@ -85,6 +87,9 @@ impl Root {
             .flex_col()
             .gap(px(28.))
             .child(group("Access", access));
+        if prefs.on {
+            page = page.child(group("Browser", self.browser_rows(cx)));
+        }
         let mut phones = Vec::new();
         if prefs.on && status.on {
             phones.push(self.pairing_row(cx));
@@ -108,6 +113,44 @@ impl Root {
             ],
         ))
         .into_any_element()
+    }
+
+    fn browser_rows(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let on = self.state.phone.browser;
+        let status = &self.phone.status;
+        let switch = widgets::switch("phone-browser", on).on_click(cx.listener(
+            move |r, _: &ClickEvent, _, cx| {
+                r.state.phone.browser = !on;
+                r.save();
+                r.phone_enable();
+                cx.notify();
+            },
+        ));
+        let mut rows = vec![row(
+            "Open HyprSpace in a browser",
+            "On this network, and on your tailnet when Tailscale is set up. Pair it with the code from Pair a phone.",
+            switch,
+        )];
+        if !on || !status.on {
+            return rows;
+        }
+        if let Some(addr) = status.addresses.first() {
+            rows.push(link_row(
+                "browser-lan",
+                format!("https://{addr}:{}/", status.port),
+                "The browser warns about the certificate once. It's this computer's own, so continue past it.",
+            ));
+        }
+        match (&status.browser, &status.browser_error) {
+            (Some(url), _) => rows.push(link_row(
+                "browser-ts",
+                url.clone(),
+                "On your tailnet, with no warning. Tailscale serves it on port 47823 until this is off.",
+            )),
+            (None, Some(e)) => rows.push(row_note("Not on your tailnet", e.clone(), true)),
+            (None, None) => {}
+        }
+        rows
     }
 
     fn get_app(&self) -> AnyElement {
@@ -204,15 +247,26 @@ impl Root {
                             .map(|a| format!("{a}:{}", self.phone.status.port))
                             .unwrap_or_else(|| "this computer's address".into())
                     )))
-                    .child(
+                    .child({
+                        let code = p.code.clone();
                         div()
                             .flex()
-                            .child(widgets::button("phone-unpair", "Cancel").on_click(
-                                cx.listener(|r, _: &ClickEvent, _, _| {
-                                    r.client.send(Command::Phone(PhoneCommand::StopPairing))
-                                }),
-                            )),
-                    ),
+                            .gap(px(8.))
+                            .child(widgets::button("phone-copy-code", "Copy code").on_click(
+                                move |_: &ClickEvent, _, cx| {
+                                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                                        code.clone(),
+                                    ))
+                                },
+                            ))
+                            .child(
+                                widgets::button("phone-unpair", "Cancel").on_click(cx.listener(
+                                    |r, _: &ClickEvent, _, _| {
+                                        r.client.send(Command::Phone(PhoneCommand::StopPairing))
+                                    },
+                                )),
+                            )
+                    }),
             )
             .into_any_element()
     }
@@ -241,7 +295,9 @@ impl Root {
                         a => format!("Seen {a} ago"),
                     }
                 };
-                if !d.app.is_empty() {
+                if d.app == "browser" {
+                    seen = format!("{seen} · Browser");
+                } else if !d.app.is_empty() {
                     seen = format!("{seen} · App {}", d.app);
                 }
                 row(
@@ -257,6 +313,26 @@ impl Root {
             })
             .collect()
     }
+}
+
+fn link_row(id: &'static str, url: String, note: &str) -> AnyElement {
+    let (open, copy) = (url.clone(), url.clone());
+    row(
+        url,
+        note,
+        div()
+            .flex()
+            .gap(px(8.))
+            .child(
+                widgets::button((id, 0usize), "Copy").on_click(move |_: &ClickEvent, _, cx| {
+                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()))
+                }),
+            )
+            .child(
+                widgets::button((id, 1usize), "Open")
+                    .on_click(move |_: &ClickEvent, _, cx| cx.open_url(&open)),
+            ),
+    )
 }
 
 fn row_note(title: &str, note: String, bad: bool) -> AnyElement {

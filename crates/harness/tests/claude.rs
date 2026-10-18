@@ -10,6 +10,7 @@ use common::{count, events, fake, finished, text};
 use hyprspace_harness::{Claude, Harness, Session};
 use hyprspace_proto::run::{ChangeKind, FileChange};
 use hyprspace_proto::{Agent, Answer, Launch, Permission, Prompt, RunEvent, RunStatus, Tool};
+use serde_json::json;
 
 fn claude() -> Claude {
     Claude::default().with_program(fake())
@@ -150,6 +151,67 @@ async fn passes_model_effort_permission_and_resumes_in_the_original_folder() {
     assert!(
         args.contains(&*name),
         "ran outside the origin folder: {args}"
+    );
+}
+
+#[tokio::test]
+async fn changes_apply_to_the_running_cli() {
+    let dir = tempfile::tempdir().unwrap();
+    let (session, mut events) = start(&claude(), dir.path());
+    session.send(Prompt::text("args"));
+    let run = events.run().await;
+    assert!(text(&run).contains("--allow-dangerously-skip-permissions"));
+    let controls = |run: &[RunEvent]| -> Vec<serde_json::Value> {
+        text(run)
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
+    };
+
+    session.configure(Launch {
+        model: Some("claude-opus-5-5[1m]".into()),
+        effort: Some("low".into()),
+        fast: true,
+        permission: Permission::Bypass,
+        ..Launch::new(Agent::Claude, dir.path())
+    });
+    session.send(Prompt::text("controls"));
+    let applied = controls(&events.run().await);
+    for want in [
+        json!({"subtype": "set_model", "model": "claude-opus-5-5[1m]"}),
+        json!({"subtype": "apply_flag_settings", "settings": {"effortLevel": "low"}}),
+        json!({"subtype": "apply_flag_settings", "settings": {"fastMode": true}}),
+        json!({"subtype": "set_permission_mode", "mode": "bypassPermissions"}),
+    ] {
+        assert!(applied.contains(&want), "{want} missing from {applied:?}");
+    }
+
+    session.configure(Launch::new(Agent::Claude, dir.path()));
+    session.send(Prompt::text("controls"));
+    let cleared = controls(&events.run().await);
+    for want in [
+        json!({"subtype": "apply_flag_settings", "settings": {"effortLevel": null}}),
+        json!({"subtype": "apply_flag_settings", "settings": {"fastMode": false}}),
+    ] {
+        assert!(cleared.contains(&want), "{want} missing from {cleared:?}");
+    }
+}
+
+#[tokio::test]
+async fn a_refused_change_says_why() {
+    let dir = tempfile::tempdir().unwrap();
+    let (session, mut events) = start(&claude(), dir.path());
+    session.configure(Launch {
+        model: Some("nope".into()),
+        ..Launch::new(Agent::Claude, dir.path())
+    });
+    session.send(Prompt::text("hi"));
+    let run = events.run().await;
+    assert!(
+        run.contains(&RunEvent::Error {
+            message: "Claude refused the change: unknown model nope".into()
+        }),
+        "{run:?}"
     );
 }
 

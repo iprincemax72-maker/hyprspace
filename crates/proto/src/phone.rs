@@ -487,7 +487,12 @@ impl Span {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum PhoneCommand {
     /// Switch the bridge on or off, and pick where it listens. Answered with `Status`.
-    Enable { on: bool, network: Network },
+    Enable {
+        on: bool,
+        network: Network,
+        #[serde(default)]
+        browser: bool,
+    },
     /// The thread list changed. The engine passes it on to every phone.
     Board { board: Box<Board> },
     /// Show a pairing code for the next few minutes. Answered with `Pairing`.
@@ -557,6 +562,10 @@ pub struct PhoneStatus {
     /// Why it isn't listening. User-facing.
     pub error: Option<String>,
     pub devices: Vec<Device>,
+    /// The page a browser on the tailnet opens, once Tailscale serves it.
+    pub browser: Option<String>,
+    /// Why the page isn't served. User-facing.
+    pub browser_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

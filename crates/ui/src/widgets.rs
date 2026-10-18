@@ -6,12 +6,13 @@ use std::rc::Rc;
 
 use gpui::{
     Anchor, AnyElement, App, Bounds, Div, ElementId, FontWeight, IntoElement, MouseButton, Pixels,
-    Point, SharedString, Stateful, Window, anchored, deferred, div, point, prelude::*, px,
+    Point, SharedString, Stateful, Window, anchored, deferred, div, point, prelude::*,
 };
 
 use crate::assets::icon;
 use crate::colors;
 use crate::transcript::Status;
+use crate::zoom::px;
 
 /// A quiet button: text on a faint fill that deepens on hover, like the segmented controls.
 pub fn button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Stateful<Div> {

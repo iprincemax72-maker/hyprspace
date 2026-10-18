@@ -6,13 +6,14 @@ use std::path::Path;
 
 use gpui::{
     AnyElement, ClickEvent, Context, FontWeight, IntoElement, Pixels, Point, SharedString, Window,
-    div, img, prelude::*, px,
+    div, img, prelude::*,
 };
 use hyprspace_proto::{Agent, Pane, ThreadKind};
 
 use crate::assets::{icon, mark};
 use crate::colors;
 use crate::root::Root;
+use crate::zoom::px;
 
 /// The last two parts of a folder, which is what tells them apart in practice.
 pub fn short(path: &Path) -> String {

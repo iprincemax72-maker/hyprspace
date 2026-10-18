@@ -6,11 +6,11 @@ use std::ops::Range;
 
 use gpui::{
     Context, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ScrollWheelEvent, Window,
-    px,
 };
 
 use super::{Editor, Unit};
 use crate::viewer::code::ROW;
+use crate::zoom::px;
 
 impl Editor {
     pub(super) fn on_down(

@@ -13,7 +13,7 @@ use std::time::Instant;
 use gpui::{
     AnyElement, App, Bounds, ClickEvent, Context, DispatchPhase, Div, FocusHandle, Focusable,
     FontWeight, HitboxBehavior, IntoElement, KeyDownEvent, MouseMoveEvent, Pixels, ScrollHandle,
-    ScrollWheelEvent, SharedString, Stateful, Window, canvas, div, point, prelude::*, px,
+    ScrollWheelEvent, SharedString, Stateful, Window, canvas, div, point, prelude::*,
 };
 use hyprspace_proto::Agent;
 
@@ -21,6 +21,7 @@ use super::effort::{self, Slider};
 use super::pickers::effort_label;
 use crate::assets::{icon, mark};
 use crate::slide::Glide;
+use crate::zoom::px;
 use crate::{colors, widgets};
 
 /// Heights in the model list, which place the gliding highlight.
@@ -195,7 +196,7 @@ impl ModelMenu {
         };
         let at = self.scroll.offset();
         let max = self.scroll.max_offset().y;
-        let y = (at.y - px(step)).clamp(-max, px(0.));
+        let y = (at.y - gpui::px(step)).clamp(-max, px(0.));
         self.scroll.set_offset(point(at.x, y));
         // an end reached drops what is left, so the next turn of the wheel answers at once
         let stuck = y == -max || y == px(0.);

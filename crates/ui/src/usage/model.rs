@@ -86,27 +86,6 @@ impl Win {
             Tone::Calm
         }
     }
-
-    /// "42m", "4h 42m", "4d 1h", or "resetting" once it is due.
-    pub fn reset_label(&self, now: i64) -> String {
-        let Some(reset) = self.resets_at else {
-            return String::new();
-        };
-        let ms = reset - now;
-        if ms <= 0 {
-            return "resetting".into();
-        }
-        let m = (ms as f64 / 60_000.0).round() as i64;
-        if m < 60 {
-            return format!("{m}m");
-        }
-        let h = m / 60;
-        if h < 48 {
-            format!("{h}h {}m", m % 60)
-        } else {
-            format!("{}d {}h", h / 24, h % 24)
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -188,7 +167,7 @@ fn window_name(minutes: u64) -> String {
         0 => "Limit".into(),
         m if m % 1440 == 0 && m / 1440 == 7 => "This week".into(),
         m if m % 1440 == 0 => format!("{} days", m / 1440),
-        m if (m as f64 / 60.0).round() == 5.0 => "Session · 5h".into(),
+        m if (m as f64 / 60.0).round() == 5.0 => "Current session".into(),
         m => format!("{} hours", (m as f64 / 60.0).round()),
     }
 }
@@ -444,16 +423,6 @@ mod tests {
     }
 
     #[test]
-    fn reset_labels() {
-        let w = |ms| win(1., Some(ms), None).reset_label(NOW);
-        assert_eq!(w(42 * 60_000), "42m");
-        assert_eq!(w(4 * HOUR + 42 * 60_000), "4h 42m");
-        assert_eq!(w(97 * HOUR), "4d 1h");
-        assert_eq!(w(-5), "resetting");
-        assert_eq!(win(1., None, None).reset_label(NOW), "");
-    }
-
-    #[test]
     fn live_wins_and_borrows_the_model_from_the_status_line() {
         let mut r = Readings::default();
         r.heard.insert(
@@ -568,7 +537,7 @@ mod tests {
         let p = r.picture(NOW);
         let c = p.codex.unwrap();
         let labels: Vec<_> = c.windows.iter().map(|w| w.label.as_str()).collect();
-        assert_eq!(labels, ["Session · 5h", "This week"]);
+        assert_eq!(labels, ["Current session", "This week"]);
         assert_eq!(c.note.as_deref(), Some("As of 3h ago."));
         assert_eq!(p.codex_missing, None);
     }

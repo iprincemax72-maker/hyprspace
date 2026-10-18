@@ -7,13 +7,14 @@ use std::ops::Range;
 
 use gpui::{
     AnyElement, Context, Hsla, IntoElement, ListHorizontalSizingBehavior, SharedString,
-    UniformListScrollHandle, div, prelude::*, px, uniform_list,
+    UniformListScrollHandle, div, prelude::*, uniform_list,
 };
 use hyprspace_theme::MONO;
 
 use super::code::ROW;
 use super::{Body, Viewer};
 use crate::colors;
+use crate::zoom::px;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {

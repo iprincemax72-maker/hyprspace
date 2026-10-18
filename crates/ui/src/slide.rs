@@ -8,8 +8,10 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    Animation, AnimationExt, AnyElement, ElementId, IntoElement, div, ease_in_out, prelude::*, px,
+    Animation, AnimationExt, AnyElement, ElementId, IntoElement, div, ease_in_out, prelude::*,
 };
+
+use crate::zoom::px;
 
 const LENGTH: Duration = Duration::from_millis(180);
 

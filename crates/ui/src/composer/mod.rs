@@ -17,13 +17,14 @@ use std::path::PathBuf;
 
 use gpui::{
     ClickEvent, Context, Entity, EventEmitter, ExternalPaths, Focusable, FontWeight, IntoElement,
-    PathPromptOptions, Pixels, Point, Render, Subscription, Window, div, prelude::*, px, relative,
+    PathPromptOptions, Pixels, Point, Render, Subscription, Window, div, prelude::*, relative,
 };
 use hyprspace_proto::agents::{AgentInfo, AgentSession};
 use hyprspace_proto::state::{ComposerPrefs, Pick};
 use hyprspace_proto::{Agent, Client, Command, Launch, Prompt};
 
 use crate::input::{InputEvent, TextInput};
+use crate::zoom::px;
 use crate::{attach, colors};
 use clone::CloneCard;
 use model_menu::{Anchor, Choice, Host as _, ModelMenu, Spec};
@@ -91,8 +92,6 @@ pub struct Composer {
     places: Vec<spaces::Place>,
     places_menu: Option<Point<Pixels>>,
     prefs: ComposerPrefs,
-    /// The next thread runs structured. It goes back to a terminal after each start.
-    structured: bool,
     images: Vec<PathBuf>,
     saving: usize,
     send_saved: bool,
@@ -170,7 +169,6 @@ impl Composer {
             places: Vec::new(),
             places_menu: None,
             prefs: ComposerPrefs::default(),
-            structured: false,
             images: Vec::new(),
             saving: 0,
             send_saved: false,
@@ -291,11 +289,12 @@ impl Composer {
     }
 
     fn terminal(&self) -> bool {
-        !(self.prefs.structured && self.structured)
+        !self.prefs.structured || self.prefs.terminal
     }
 
     fn toggle_structured(&mut self, cx: &mut Context<Self>) {
-        self.structured = !self.structured;
+        self.prefs.terminal = !self.prefs.terminal;
+        cx.emit(ComposerEvent::Prefs(self.prefs.clone()));
         cx.notify();
     }
 
@@ -463,7 +462,6 @@ impl Composer {
     }
 
     fn reset(&mut self, cx: &mut Context<Self>) {
-        self.structured = false;
         self.images.clear();
         self.clone.url.clear();
         self.clone.error = None;

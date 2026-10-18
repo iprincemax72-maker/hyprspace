@@ -4,8 +4,7 @@
 
 use alacritty_terminal::term::search::Match;
 use gpui::{
-    AnyElement, ClickEvent, Context, Entity, FontWeight, IntoElement, Subscription, div,
-    prelude::*, px,
+    AnyElement, ClickEvent, Context, Entity, FontWeight, IntoElement, Subscription, div, prelude::*,
 };
 
 use super::TerminalView;
@@ -13,6 +12,7 @@ use super::emulator::Emulator;
 use crate::colors;
 use crate::input::{InputEvent, Newline, TextInput};
 use crate::widgets;
+use crate::zoom::px;
 
 pub struct Find {
     pub input: Entity<TextInput>,

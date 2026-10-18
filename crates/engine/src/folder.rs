@@ -67,10 +67,16 @@ fn list_files(cwd: &Path) -> Vec<String> {
 #[derive(Clone, Default)]
 pub struct Folders {
     git: Arc<Mutex<()>>,
+    watch: crate::watch::Watch,
 }
 
 impl Folders {
     pub fn handle(&self, cmd: FolderCommand, tx: UnboundedSender<Event>) {
+        if let FolderCommand::Watch { cwds } = cmd {
+            let watch = self.watch.clone();
+            tokio::task::spawn_blocking(move || watch.set(cwds, tx));
+            return;
+        }
         let lock = self.git.clone();
         tokio::task::spawn_blocking(move || {
             for event in run(cmd, &lock) {
@@ -83,6 +89,7 @@ impl Folders {
 fn run(cmd: FolderCommand, lock: &Mutex<()>) -> Vec<FolderEvent> {
     let git_lock = || lock.lock().unwrap_or_else(|e| e.into_inner());
     match cmd {
+        FolderCommand::Watch { .. } => Vec::new(),
         FolderCommand::ListDir { path } => {
             let entries = list_dir(&path);
             vec![FolderEvent::Dir { path, entries }]
@@ -180,7 +187,7 @@ fn done(cwd: std::path::PathBuf, result: git::Result<String>) -> Vec<FolderEvent
     ]
 }
 
-fn status(cwd: &Path) -> GitStatus {
+pub(crate) fn status(cwd: &Path) -> GitStatus {
     let Some(root) = root(cwd) else {
         return GitStatus::default();
     };
@@ -207,7 +214,7 @@ fn roots() -> MutexGuard<'static, Roots> {
         .unwrap_or_else(|e| e.into_inner())
 }
 
-fn root(cwd: &Path) -> Option<PathBuf> {
+pub(crate) fn root(cwd: &Path) -> Option<PathBuf> {
     let Some(marker) = cwd
         .ancestors()
         .find(|d| d.join(".git").exists())

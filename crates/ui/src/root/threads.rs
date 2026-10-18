@@ -519,6 +519,15 @@ impl Root {
                 }
                 self.save();
             }
+            TranscriptEvent::SwitchFailed => self.switch_back(thread, cx),
+            TranscriptEvent::Draft(text) => {
+                if let Some(t) = self.state.thread_mut(thread)
+                    && t.draft != *text
+                {
+                    t.draft = text.clone();
+                    self.save();
+                }
+            }
             TranscriptEvent::Queue(queue) => {
                 if let Some(t) = self.state.thread_mut(thread) {
                     t.queue = queue.clone();
@@ -815,6 +824,7 @@ impl Root {
                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
                 }
             }
+            Action::Switch(thread) => self.switch_kind(thread, cx),
             Action::CopyConversation(thread) => {
                 if let Some(id) = self.conversation(thread) {
                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(id));

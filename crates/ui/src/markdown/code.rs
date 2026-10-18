@@ -12,18 +12,19 @@ use std::time::{Duration, Instant};
 
 use gpui::{
     App, Context, IntoElement, RenderOnce, SharedString, StyledText, Task, Window, div, prelude::*,
-    px,
 };
 use hyprspace_syntax::{Kind, Line};
 use hyprspace_theme::MONO;
 
 use crate::colors;
+use crate::zoom::px;
 
 #[derive(IntoElement)]
 pub struct CodeBlock {
     key: SharedString,
     lang: String,
     text: String,
+    fade: Vec<(Range<usize>, f32)>,
 }
 
 impl CodeBlock {
@@ -32,7 +33,13 @@ impl CodeBlock {
             key: format!("code-{key}").into(),
             lang: lang.to_string(),
             text: text.trim_end().to_string(),
+            fade: Vec::new(),
         }
+    }
+
+    pub fn fade(mut self, at: usize, fade: &[(Range<usize>, f32)]) -> Self {
+        self.fade = super::fade::local(&self.text, at, fade);
+        self
     }
 }
 
@@ -209,6 +216,7 @@ impl RenderOnce for CodeBlock {
                     .text_color(colors::hsla(colors::theme().syntax.plain))
                     .child({
                         let text = SharedString::from(self.text);
+                        let highlights = super::fade::merge(text.len(), highlights, &self.fade);
                         let styled = StyledText::new(text.clone()).with_highlights(highlights);
                         let layout = styled.layout().clone();
                         super::select::wrap(&key, text, layout, styled.into_any_element())

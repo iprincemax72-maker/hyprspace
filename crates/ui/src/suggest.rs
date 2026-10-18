@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 
 use gpui::{
     AnyElement, App, ClickEvent, Entity, FontWeight, Global, IntoElement, KeyBinding, MouseButton,
-    SharedString, actions, div, prelude::*, px, relative,
+    SharedString, actions, div, prelude::*, relative,
 };
 use hyprspace_proto::agents::SkillItem;
 use hyprspace_proto::{Agent, Client, Command, FolderCommand, SkillCommand};
@@ -13,6 +13,7 @@ use hyprspace_proto::{Agent, Client, Command, FolderCommand, SkillCommand};
 use crate::assets::icon;
 use crate::colors;
 use crate::input::TextInput;
+use crate::zoom::px;
 
 actions!(suggest, [Prev, Next, Accept, Dismiss]);
 

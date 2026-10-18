@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use gpui::{
     Animation, AnimationExt, AnyElement, ClickEvent, Context, Div, ElementId, ExternalPaths,
     Focusable, FontWeight, IntoElement, MouseButton, ScrollWheelEvent, SharedString, StyledText,
-    Transformation, Window, div, list, percentage, prelude::*, px, relative,
+    Transformation, Window, div, list, percentage, prelude::*, relative,
 };
 use hyprspace_proto::{RunStatus, Tool};
 
@@ -21,6 +21,7 @@ use crate::assets::{icon, mark};
 use crate::composer::model_menu::{self, Host as _, ModelMenu};
 use crate::pace::Looping;
 use crate::slide::{self, Glide, ease_out};
+use crate::zoom::px;
 use crate::{attach, colors, markdown, spinner, widgets};
 
 /// The transcript and the composer share one column, so their edges line up. Text runs 768px
@@ -64,13 +65,24 @@ pub fn view(
         .as_mut()
         .and_then(|r| match v.model.items.get(r.ix) {
             Some(Item::Text { source, .. }) => r.step(source, window, cx).map(|end| {
-                (
-                    r.ix,
-                    model::reply(&source[..end], v.model.after_command(r.ix)),
-                )
+                let text = &source[..end];
+                if v.model.after_command(r.ix) {
+                    return (r.ix, model::reply(text, true));
+                }
+                if v.stream.0 != r.ix {
+                    v.stream = (r.ix, Default::default());
+                }
+                (r.ix, v.stream.1.parse(text))
             }),
             _ => None,
         });
+    if let Some((ix, b)) = &v.partial {
+        v.fade.grow(*ix, b);
+    }
+    if v.fade.tick() {
+        crate::pace::next(window, cx);
+    }
+    v.model.parse(v.partial.as_ref().map(|(ix, _)| *ix));
     let now = Instant::now();
     for ix in v.seen.max(v.fresh)..v.model.items.len() {
         v.born.insert(ix, now);
@@ -692,7 +704,7 @@ fn item(
                 .text_size(px(14.))
                 .line_height(relative(1.65))
                 .text_color(colors::text1())
-                .child(markdown::render(b, &format!("t{ix}")))
+                .child(markdown::render(b, &format!("t{ix}"), &v.fade.at(ix)))
                 .child(hover_copy(ix, source))
                 .into_any_element(),
             None => div().into_any_element(),
@@ -814,9 +826,23 @@ fn item(
                 .into_any_element()
         }
         Item::Note(text) => div()
+            .flex()
+            .items_center()
+            .gap(px(10.))
             .text_size(px(11.5))
             .text_color(colors::text3())
             .child(text.clone())
+            .when(v.cut == Some(ix) && !v.model.running(), |d| {
+                d.child(
+                    widgets::button("resume-cut", "Resume")
+                        .h(px(24.))
+                        .px(px(9.))
+                        .text_size(px(12.))
+                        .child(icon("rotate-cw", 12., colors::text2()))
+                        .flex_row_reverse()
+                        .on_click(cx.listener(|v, _: &ClickEvent, _, cx| v.resume_cut(cx))),
+                )
+            })
             .into_any_element(),
         Item::Changes {
             files, all, undo, ..

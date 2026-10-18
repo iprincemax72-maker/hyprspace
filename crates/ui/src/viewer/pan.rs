@@ -1,6 +1,8 @@
 use gpui::{
-    MouseButton, MouseMoveEvent, Pixels, Point, ScrollDelta, ScrollWheelEvent, Window, point, px,
+    MouseButton, MouseMoveEvent, Pixels, Point, ScrollDelta, ScrollWheelEvent, Window, point,
 };
+
+use crate::zoom::px;
 
 const MIN_ZOOM: f32 = 0.25;
 const MAX_ZOOM: f32 = 10.;

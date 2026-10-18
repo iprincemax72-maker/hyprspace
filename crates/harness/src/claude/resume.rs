@@ -17,7 +17,7 @@ pub(crate) fn config_dir() -> Option<PathBuf> {
     Some(PathBuf::from(home).join(".claude"))
 }
 
-fn transcripts(config: &Path, thread: &str) -> Vec<PathBuf> {
+pub(crate) fn transcripts(config: &Path, thread: &str) -> Vec<PathBuf> {
     // an id is a uuid; anything else could walk out of the projects folder
     if thread.is_empty()
         || !thread

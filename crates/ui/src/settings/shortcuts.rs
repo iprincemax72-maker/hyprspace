@@ -3,9 +3,10 @@
 // and the terminal's in `terminal/` (its keys and its link click). Change one there, change it
 // here.
 
-use gpui::{AnyElement, div, prelude::*, px};
+use gpui::{AnyElement, div, prelude::*};
 
 use super::controls::{group, keys, row};
+use crate::zoom::px;
 
 /// Cmd on macOS, Ctrl elsewhere: GPUI's `secondary`, and the terminal's copy and link keys.
 const MOD: &str = if cfg!(target_os = "macos") {
@@ -63,6 +64,9 @@ pub(super) fn page() -> AnyElement {
                     "",
                     &[chord(&["Ctrl", "`"])],
                 ),
+                line("Zoom in", "", &[chord(&[MOD, "+"])]),
+                line("Zoom out", "", &[chord(&[MOD, "-"])]),
+                line("Actual size", "", &[chord(&[MOD, "0"])]),
                 line("Close Settings", "", &["Esc".into()]),
             ],
         ))

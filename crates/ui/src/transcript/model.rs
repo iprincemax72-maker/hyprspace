@@ -527,13 +527,15 @@ impl Transcript {
     }
 
     /// After a journal replay: whatever was live when the app closed is over now.
-    pub fn settle(&mut self) {
+    pub fn settle(&mut self) -> Option<usize> {
         self.compacting = false;
-        if self.run.take().is_some() {
+        let cut = self.run.take().map(|_| {
             self.note("The app closed before this run finished.");
-        }
+            self.items.len() - 1
+        });
         self.expire();
         self.stop_agents();
+        cut
     }
 
     fn end_session(&mut self) {
@@ -584,11 +586,12 @@ impl Transcript {
     }
 
     /// Parses any reply text that changed since the last paint.
-    pub fn parse(&mut self) {
+    pub fn parse(&mut self, skip: Option<usize>) {
         let mut command = false;
-        for item in &mut self.items {
+        for (ix, item) in self.items.iter_mut().enumerate() {
             match item {
                 Item::User { text, .. } => command = slash(text),
+                Item::Text { .. } if Some(ix) == skip => {}
                 Item::Text { source, blocks } if blocks.is_none() => {
                     *blocks = Some(reply(source, command));
                 }
@@ -855,7 +858,7 @@ mod tests {
         assert!(
             matches!(&t.items[t.items.len() - 2], Item::Text { source, .. } if source == "both done")
         );
-        t.parse();
+        t.parse(None);
     }
 
     #[test]
@@ -885,7 +888,7 @@ mod tests {
         assert!(!t.running());
         assert!(matches!(t.items.last(), Some(Item::Note(_))));
         assert_ne!(t.status(), Status::Waiting);
-        t.parse();
+        t.parse(None);
     }
 
     #[test]
@@ -964,5 +967,40 @@ mod tests {
         t.apply(RunEvent::Compacting);
         t.settle();
         assert!(!t.compacting);
+    }
+
+    #[test]
+    #[ignore = "a measurement: cargo test --release -p hyprspace-ui perf_ -- --ignored --nocapture"]
+    fn perf_opening_a_long_thread() {
+        let reply = "Here is what changed, with `code` and **bold**.\n\n- a\n- b\n".repeat(8);
+        let t = std::time::Instant::now();
+        let mut m = Transcript::default();
+        for i in 0..1_000 {
+            m.prompt(&Prompt::text(format!("prompt {i}")));
+            m.apply(RunEvent::Tool {
+                id: format!("t{i}"),
+                tool: Tool::Read {
+                    path: "src/a.rs".into(),
+                },
+            });
+            m.apply(RunEvent::ToolDone {
+                id: format!("t{i}"),
+                ok: true,
+                output: "ok".into(),
+            });
+            m.apply(text(&reply));
+            m.apply(RunEvent::Finished {
+                status: RunStatus::Done,
+                ms: 10,
+                text: String::new(),
+                error: None,
+            });
+        }
+        let replay = t.elapsed();
+        let t = std::time::Instant::now();
+        m.parse(None);
+        let parsed = t.elapsed();
+        eprintln!("thread: {replay:?} to replay 1,000 runs, {parsed:?} to parse their replies");
+        assert!(replay + parsed < std::time::Duration::from_millis(250));
     }
 }

@@ -4,11 +4,11 @@
 
 use gpui::{
     AnyElement, Div, ElementId, FontWeight, IntoElement, SharedString, Stateful, div, prelude::*,
-    px,
 };
 
 use crate::assets::icon;
 use crate::colors;
+use crate::zoom::px;
 
 /// The page column: centered, at most this wide, with air on both sides.
 const PAGE_WIDTH: f32 = 760.;

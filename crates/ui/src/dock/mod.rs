@@ -12,13 +12,14 @@ use std::time::Duration;
 
 use gpui::{
     AnyElement, ClickEvent, Context, EventEmitter, FontWeight, IntoElement, Render, Task, Window,
-    div, prelude::*, px,
+    div, prelude::*,
 };
 use hyprspace_proto::state::DockTab;
 use hyprspace_proto::{Client, Command, FolderCommand, FolderEvent, Pane};
 
 use crate::assets::icon;
 use crate::colors;
+use crate::zoom::px;
 use files::Tree;
 use git::GitTab;
 
@@ -42,8 +43,8 @@ pub struct Dock {
 
 impl EventEmitter<DockEvent> for Dock {}
 
-/// How often git is asked again while the dock is out, as the Tauri app did.
-const POLL: Duration = Duration::from_secs(4);
+/// How often git is asked again while the dock is out, behind the engine's watcher.
+const POLL: Duration = Duration::from_secs(30);
 
 impl Dock {
     pub fn new(client: Client, cx: &mut Context<Self>) -> Self {

@@ -1,7 +1,9 @@
 // A QR code drawn module by module, dark on light. Scanners want that way round, so the code
 // takes its colors from the light side of the theme even when the app is dark.
 
-use gpui::{AnyElement, Bounds, Hsla, IntoElement, canvas, div, fill, point, prelude::*, px, size};
+use gpui::{AnyElement, Bounds, Hsla, IntoElement, canvas, div, fill, point, prelude::*, size};
+
+use crate::zoom::px;
 
 /// Blank modules around the code, which scanners need to find it.
 const QUIET: usize = 3;

@@ -53,6 +53,11 @@ pub enum Command {
         #[serde(default)]
         answers: Vec<(String, String)>,
     },
+    /// Append what Claude saved of `conversation` past `journal`'s last prompt to that journal.
+    ImportHistory {
+        journal: String,
+        conversation: String,
+    },
     /// Read a journal back. Answered with `Event::Journal` for `id`.
     LoadJournal {
         id: SessionId,

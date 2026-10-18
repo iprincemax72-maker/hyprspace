@@ -1,11 +1,12 @@
 // An approval prompt in the transcript: what the agent wants to run, why, the diff or command,
 // and the buttons. Once answered or expired it stays as a record of what happened.
 
-use gpui::{AnyElement, ClickEvent, Context, FontWeight, IntoElement, div, prelude::*, px};
+use gpui::{AnyElement, ClickEvent, Context, FontWeight, IntoElement, div, prelude::*};
 use hyprspace_proto::{Answer, Tool};
 
 use super::{TranscriptView, tool};
 use crate::assets::icon;
+use crate::zoom::px;
 use crate::{colors, widgets};
 
 #[allow(clippy::too_many_arguments)]

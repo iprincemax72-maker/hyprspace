@@ -8,6 +8,7 @@
 pub mod catalog;
 pub mod claude;
 pub mod codex;
+pub mod protocol;
 mod spawn;
 
 use std::io;

@@ -3,8 +3,7 @@
 // tested with byte strings. Term owns the selection, so it stays on its text as output scrolls.
 // Adapted from zeron's crates/ui/src/terminal/emulator.rs (MIT, see THIRD_PARTY_NOTICES.md).
 
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 use alacritty_terminal::event::{Event, EventListener};
 use alacritty_terminal::grid::{Dimensions, Scroll};
@@ -21,6 +20,25 @@ pub use alacritty_terminal::index::{Point, Side};
 pub use alacritty_terminal::selection::SelectionType;
 
 const SCROLLBACK_LINES: usize = 10_000;
+const SCROLLBACK_BYTES: usize = 24 << 20;
+const MIN_SCROLLBACK: usize = 2_000;
+
+fn scrollback(cols: u16) -> usize {
+    let line =
+        usize::from(cols.max(2)) * std::mem::size_of::<alacritty_terminal::term::cell::Cell>();
+    (SCROLLBACK_BYTES / line).clamp(MIN_SCROLLBACK, SCROLLBACK_LINES)
+}
+
+fn config(cols: u16, blink: bool) -> Config {
+    Config {
+        scrolling_history: scrollback(cols),
+        default_cursor_style: CursorStyle {
+            shape: CursorShape::Block,
+            blinking: blink,
+        },
+        ..Config::default()
+    }
+}
 /// Past this many matches the find bar stops counting; a search for "e" in a full scrollback
 /// would otherwise walk every line on each keystroke.
 const MAX_MATCHES: usize = 1000;
@@ -164,11 +182,17 @@ pub struct LineText {
 
 // Term reports through `&self`, so events queue here and `feed` drains them.
 #[derive(Default, Clone)]
-struct Capture(Rc<RefCell<Vec<Event>>>);
+struct Capture(Arc<Mutex<Vec<Event>>>);
+
+impl Capture {
+    fn take(&self) -> Vec<Event> {
+        std::mem::take(&mut *self.0.lock().unwrap_or_else(|e| e.into_inner()))
+    }
+}
 
 impl EventListener for Capture {
     fn send_event(&self, event: Event) {
-        self.0.borrow_mut().push(event);
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).push(event);
     }
 }
 
@@ -178,6 +202,7 @@ pub type Palette = fn(usize) -> (u8, u8, u8);
 
 pub struct Emulator {
     term: Term<Capture>,
+    blink: bool,
     parser: Processor,
     capture: Capture,
     palette: Palette,
@@ -188,17 +213,14 @@ impl Emulator {
     /// answers programs that ask what the colors are.
     pub fn new(cols: u16, rows: u16, blink: bool, palette: Palette) -> Self {
         let capture = Capture::default();
-        let config = Config {
-            scrolling_history: SCROLLBACK_LINES,
-            default_cursor_style: CursorStyle {
-                shape: CursorShape::Block,
-                blinking: blink,
-            },
-            ..Config::default()
-        };
-        let term = Term::new(config, &GridSize::new(cols, rows), capture.clone());
+        let term = Term::new(
+            config(cols, blink),
+            &GridSize::new(cols, rows),
+            capture.clone(),
+        );
         Self {
             term,
+            blink,
             parser: Processor::new(),
             capture,
             palette,
@@ -211,7 +233,7 @@ impl Emulator {
     pub fn feed(&mut self, bytes: &[u8]) -> Vec<u8> {
         self.parser.advance(&mut self.term, bytes);
         let mut out = Vec::new();
-        for event in self.capture.0.borrow_mut().drain(..) {
+        for event in self.capture.take() {
             match event {
                 Event::PtyWrite(text) => out.extend_from_slice(text.as_bytes()),
                 Event::ColorRequest(ix, answer) => {
@@ -226,6 +248,9 @@ impl Emulator {
 
     /// Reflows the grid. Scrollback rewraps to the new width.
     pub fn resize(&mut self, cols: u16, rows: u16) {
+        if scrollback(cols) != scrollback(self.size().0) {
+            self.term.set_options(config(cols, self.blink));
+        }
         self.term.resize(GridSize::new(cols, rows));
     }
 
@@ -255,6 +280,10 @@ impl Emulator {
     /// On the alternate screen, the wheel becomes arrow keys (xterm's alternate scroll).
     pub fn alternate_scroll(&self) -> bool {
         self.mode(TermMode::ALTERNATE_SCROLL)
+    }
+
+    pub fn alternate_scroll_on(&self) -> bool {
+        self.alt_screen() && self.alternate_scroll()
     }
 
     /// The program asked for mouse reports, in SGR form when `sgr`.
@@ -725,11 +754,61 @@ mod tests {
     }
 
     #[test]
+    fn wide_terminals_keep_fewer_lines_so_none_holds_more_than_its_budget() {
+        assert_eq!(
+            std::mem::size_of::<alacritty_terminal::term::cell::Cell>(),
+            24
+        );
+        assert_eq!(scrollback(80), SCROLLBACK_LINES);
+        assert_eq!(scrollback(200), 5_242);
+        assert_eq!(scrollback(2_000), MIN_SCROLLBACK);
+        let mut e = emu(200, 3);
+        let lines = |e: &mut Emulator| {
+            for i in 0..6_000 {
+                e.feed(format!("{i}\r\n").as_bytes());
+            }
+        };
+        lines(&mut e);
+        assert_eq!(e.history(), 5_242);
+        e.resize(80, 3);
+        lines(&mut e);
+        assert!(e.history() > 5_242);
+    }
+
+    #[test]
     fn utf8_split_across_feeds_reassembles() {
         let mut e = emu(10, 2);
         let bytes = "é".as_bytes();
         e.feed(&bytes[..1]);
         e.feed(&bytes[1..]);
         assert_eq!(e.row_text(0), "é");
+    }
+
+    #[test]
+    #[ignore = "a measurement: cargo test --release -p hyprspace-ui perf_ -- --ignored --nocapture"]
+    fn perf_terminal_output_and_snapshots() {
+        let mut chunk = Vec::new();
+        for i in 0..400 {
+            chunk.extend_from_slice(
+                format!("\x1b[32m{i:>5}\x1b[0m compiling crate number {i} with some words\r\n")
+                    .as_bytes(),
+            );
+        }
+        let mut e = emu(160, 48);
+        let rounds = 200;
+        let t = std::time::Instant::now();
+        for _ in 0..rounds {
+            e.feed(&chunk);
+        }
+        let mb = (chunk.len() * rounds) as f64 / 1e6;
+        let rate = mb / t.elapsed().as_secs_f64();
+        let t = std::time::Instant::now();
+        for _ in 0..100 {
+            std::hint::black_box(e.lines(&Marks::default()));
+        }
+        let snapshot = t.elapsed() / 100;
+        eprintln!("terminal: {rate:.0} MB/s parsed, {snapshot:?} per 160x48 snapshot");
+        assert!(rate > 20., "parsing fell to {rate:.1} MB/s");
+        assert!(snapshot < std::time::Duration::from_millis(2));
     }
 }

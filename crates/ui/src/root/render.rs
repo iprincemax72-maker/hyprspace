@@ -2,9 +2,10 @@
 // composer, or settings. Context menus open from here so they float over everything.
 
 use crate::assets::icon;
+use crate::zoom::px;
 use gpui::{
     AnyElement, ClickEvent, Context, DragMoveEvent, IntoElement, Render, StyleRefinement, Window,
-    anchored, deferred, div, point, prelude::*, px, relative,
+    anchored, deferred, div, point, prelude::*, relative,
 };
 
 use super::{Action, MenuEntry, MenuItems, Root, Screen, SidebarDrag};
@@ -17,12 +18,26 @@ impl Root {
     /// split by a rule, a note on the right where one helps, and an arrow on the rows that open
     /// more choices beside them while the pointer is on them.
     fn menu(&self, window: &mut Window, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let (at, entries) = self.menu.clone()?;
+        let (at, mut entries) = self.menu.clone()?;
+        let mut waiting = Vec::new();
+        for e in entries.iter_mut() {
+            if let MenuEntry::Item {
+                hint,
+                action: Action::Switch(id),
+                ..
+            } = e
+            {
+                *hint = self.switch_wait(*id).map(|s| format!("in {s}s").into());
+                if hint.is_some() {
+                    waiting.push(*id);
+                }
+            }
+        }
         let sub = self.menu_sub.and_then(|i| match entries.get(i) {
             Some(MenuEntry::Sub { entries, .. }) => Some((i, entries.clone())),
             _ => None,
         });
-        let mut panel = menu_panel(&entries, "menu", cx);
+        let mut panel = menu_panel(&entries, "menu", &waiting, cx);
         if let Some((i, entries)) = sub {
             // the choices line up with the row that opened them, just past the menu's edge
             // its first row level with row `i`: past the rows above, less its own edge and padding
@@ -38,7 +53,7 @@ impl Root {
                     .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .top(px(top))
                     .pl(px(2.))
-                    .child(menu_panel(&entries, "submenu", cx)),
+                    .child(menu_panel(&entries, "submenu", &waiting, cx)),
             );
         }
         let close = cx.listener(|r, _: &(), _, cx| {
@@ -83,7 +98,12 @@ fn entries_height(entries: &[MenuEntry]) -> f32 {
 }
 
 /// One menu's panel: its rows on the window's raised surface.
-fn menu_panel(entries: &[MenuEntry], key: &'static str, cx: &mut Context<Root>) -> gpui::Div {
+fn menu_panel(
+    entries: &[MenuEntry],
+    key: &'static str,
+    waiting: &[u64],
+    cx: &mut Context<Root>,
+) -> gpui::Div {
     let top = key == "menu";
     let rows = entries.iter().enumerate().map(|(i, entry)| match entry {
         MenuEntry::Divider => div()
@@ -99,6 +119,21 @@ fn menu_panel(entries: &[MenuEntry], key: &'static str, cx: &mut Context<Root>) 
         } => {
             let action = *action;
             let danger = matches!(action, Action::RemoveThread(_));
+            if matches!(action, Action::Switch(id) if waiting.contains(&id)) {
+                return div()
+                    .flex()
+                    .items_center()
+                    .gap(px(12.))
+                    .h(px(MENU_ROW))
+                    .px(px(12.))
+                    .text_color(colors::text3())
+                    .child(div().flex_1().min_w_0().truncate().child(label.clone()))
+                    .children(
+                        hint.clone()
+                            .map(|h| div().flex_none().text_size(px(12.)).child(h)),
+                    )
+                    .into_any_element();
+            }
             menu_line((key, i), label.clone(), danger)
                 .children(hint.clone().map(|h| {
                     div()
@@ -186,6 +221,7 @@ impl Render for Root {
         if let Some(space) = self.work.compose.take() {
             self.compose(Some(space), window, cx);
         }
+        self.show_terminals(cx);
         let main: AnyElement = if !self.loaded {
             div().into_any_element()
         } else {
@@ -252,6 +288,9 @@ impl Render for Root {
             .key_context("Root")
             .on_action(cx.listener(Self::toggle_palette))
             .on_action(cx.listener(Self::toggle_sidebar))
+            .on_action(cx.listener(Self::zoom_in))
+            .on_action(cx.listener(Self::zoom_out))
+            .on_action(cx.listener(Self::zoom_reset))
             .size_full()
             .flex()
             .flex_col()
@@ -260,7 +299,7 @@ impl Render for Root {
             .font_family(crate::settings::ui_font())
             .on_drag_move(cx.listener(|r, e: &DragMoveEvent<SidebarDrag>, _, cx| {
                 let x: f32 = e.event.position.x.into();
-                r.state.sidebar_width = x.clamp(MIN_WIDTH, MAX_WIDTH);
+                r.state.sidebar_width = (x / crate::zoom::zoom()).clamp(MIN_WIDTH, MAX_WIDTH);
                 cx.notify();
             }))
             .on_drop(cx.listener(|r, _: &SidebarDrag, _, _| r.save()))

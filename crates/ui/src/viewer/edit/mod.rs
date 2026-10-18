@@ -21,7 +21,7 @@ use std::time::Duration;
 use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, EventEmitter, FocusHandle, Focusable,
     IntoElement, MouseButton, Pixels, Point, Render, ShapedLine, Task, Window, div, point,
-    prelude::*, px,
+    prelude::*,
 };
 use hyprspace_proto::folder::SaveError;
 use hyprspace_proto::{Client, Command, FolderCommand};
@@ -29,6 +29,7 @@ use hyprspace_syntax::Line;
 
 use super::code::{ROW, expand, raw_col, shown_col};
 use crate::colors;
+use crate::zoom::px;
 use buffer::{Buffer, Sel};
 use element::EditorElement;
 

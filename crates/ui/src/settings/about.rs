@@ -2,7 +2,7 @@
 // version's notes and the intro again, and where the code and the issue tracker live.
 
 use gpui::{
-    AnyElement, ClickEvent, Context, Transformation, div, percentage, prelude::*, px, relative,
+    AnyElement, ClickEvent, Context, Transformation, div, percentage, prelude::*, relative,
 };
 
 use super::Root;
@@ -10,6 +10,7 @@ use super::controls::{group, row, row_with, text};
 use crate::assets::{icon, logo};
 use crate::pace::Looping;
 use crate::update::{Phase, VERSION};
+use crate::zoom::px;
 use crate::{colors, widgets};
 
 const REPO: &str = "https://github.com/xxashxx-svg/hyprspace";

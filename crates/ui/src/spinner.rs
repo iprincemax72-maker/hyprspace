@@ -3,12 +3,11 @@
 
 use std::f32::consts::TAU;
 
-use gpui::{
-    AnyElement, ElementId, Hsla, IntoElement, Transformation, div, prelude::*, px, radians,
-};
+use gpui::{AnyElement, ElementId, Hsla, IntoElement, Transformation, div, prelude::*, radians};
 
 use crate::assets::icon;
 use crate::pace::Looping;
+use crate::zoom::px;
 
 /// Two dots circling each other on an ellipse seen edge on: the one going behind shrinks and
 /// fades, so they read as passing. Sized to sit on a 12.5px line. `id` must be unique among its

@@ -4,6 +4,15 @@ Release notes for HyprSpace. Written **at ship time** — when you ask to ship, 
 changed since the last release and writes a few user-facing bullets; `deploy.ps1` records them here
 and uses them as the release notes + the in-app "What's new" notification. No per-task bookkeeping.
 
+## 0.24.20 — 2026-10-18
+
+- Open HyprSpace in a browser on your network, or on your tailnet with Tailscale. Turn it on in Settings, Phone, and pair with the code.
+- Switch a Claude or Codex thread between terminal and structured from its right-click menu.
+- Zoom in and out with Ctrl and plus or minus, like a browser. Ctrl+0 resets it.
+- A run cut off when the app closed now has a Resume button, and a message you were typing in a structured thread is still there after a restart.
+- The usage meter shows how much is used and when it resets.
+- Replies fade in as they stream, the Settings sidebar can be resized, and the undo toast is cleaner.
+
 ## 0.24.19 — 2026-10-15
 
 - Press Ctrl+` in a structured thread for a terminal under the chat, with tabs for more shells.

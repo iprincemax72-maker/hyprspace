@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -43,6 +45,7 @@ class Store(context: Context, private val scope: CoroutineScope) {
     private val key = stringPreferencesKey("saved")
     private val state = MutableStateFlow(load())
     val saved: StateFlow<Saved> = state
+    private val writing = Mutex()
 
     private fun load(): Saved = runBlocking {
         val json = ds.data.first()[key] ?: return@runBlocking Saved()
@@ -53,14 +56,18 @@ class Store(context: Context, private val scope: CoroutineScope) {
     }
 
     fun update(f: (Saved) -> Saved) {
-        val next = synchronized(this) {
+        synchronized(this) {
             val n = f(state.value)
             if (n == state.value) return
             state.value = n
-            n
         }
-        val sealed = next.copy(desktops = next.desktops.map { it.copy(token = Vault.seal(it.token)) })
-        scope.launch { ds.edit { it[key] = wire.encodeToString(Saved.serializer(), sealed) } }
+        scope.launch {
+            writing.withLock {
+                val next = state.value
+                val sealed = next.copy(desktops = next.desktops.map { it.copy(token = Vault.seal(it.token)) })
+                ds.edit { it[key] = wire.encodeToString(Saved.serializer(), sealed) }
+            }
+        }
     }
 
     fun remember(d: Desktop) = update { s ->

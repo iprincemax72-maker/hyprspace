@@ -4,6 +4,12 @@ Release notes for HyprSpace. Written **at ship time** — when you ask to ship, 
 changed since the last release and writes a few user-facing bullets; `deploy.ps1` records them here
 and uses them as the release notes + the in-app "What's new" notification. No per-task bookkeeping.
 
+## 0.24.21 — 2026-10-18
+
+- Queued messages have an Edit button that puts the message back in the reply box.
+- Picking an answer to Claude's question no longer jumps ahead. Click Next when you're ready.
+- The x on an attached image is bigger, and clicking it no longer opens the image.
+
 ## 0.24.20 — 2026-10-18
 
 - Open HyprSpace in a browser on your network, or on your tailnet with Tailscale. Turn it on in Settings, Phone, and pair with the code.

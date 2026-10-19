@@ -4,6 +4,13 @@ Release notes for HyprSpace. Written **at ship time** — when you ask to ship, 
 changed since the last release and writes a few user-facing bullets; `deploy.ps1` records them here
 and uses them as the release notes + the in-app "What's new" notification. No per-task bookkeeping.
 
+## 0.24.23 — 2026-10-19
+
+- The prompt rail on the left fits the window in long threads, and every tick stays reachable.
+- In long threads the rail stays hidden until you move near it or scroll fast, and it fades in and out.
+- Jumping to a prompt from the rail or with Alt+Up and Alt+Down always scrolls smoothly and lands on that prompt.
+- Press Up in an empty message box to edit your last queued message. An edited message goes back to its old place in the queue.
+
 ## 0.24.22 — 2026-10-19
 
 - Press Ctrl+F in a structured thread to find text, and Enter to step through matches.

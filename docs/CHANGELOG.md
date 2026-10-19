@@ -4,6 +4,19 @@ Release notes for HyprSpace. Written **at ship time** — when you ask to ship, 
 changed since the last release and writes a few user-facing bullets; `deploy.ps1` records them here
 and uses them as the release notes + the in-app "What's new" notification. No per-task bookkeeping.
 
+## 0.24.22 — 2026-10-19
+
+- Press Ctrl+F in a structured thread to find text, and Enter to step through matches.
+- Fork a thread from any of your messages to try another way, and keep the original.
+- Ctrl+K now searches what was said in your structured threads.
+- A run that took a while ends with how long it worked.
+- A failed run has a Try again button.
+- Alt+Up and Alt+Down jump between your messages.
+- Drag queued messages to change their order. Images in an unsent message stay after a restart.
+- Type ultrathink in a Claude thread and the reply box gets a rainbow ring.
+- The folder picker can make a new folder.
+- Clicking the terminal's find bar no longer sends your typing back to the terminal.
+
 ## 0.24.21 — 2026-10-18
 
 - Queued messages have an Edit button that puts the message back in the reply box.

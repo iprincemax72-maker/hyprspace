@@ -73,6 +73,7 @@ pub fn card(ix: usize, a: &Subagent, cx: &mut Context<TranscriptView>) -> AnyEle
             if let Some(Item::Agent(a)) = v.model.items.get_mut(ix) {
                 a.open = !a.open;
             }
+            super::render::settle_fold(cx);
             cx.notify();
         }));
     // lines up under the title, past the chevron and the icon
@@ -95,9 +96,9 @@ pub fn card(ix: usize, a: &Subagent, cx: &mut Context<TranscriptView>) -> AnyEle
         .bg(colors::ink(0.035))
         .child(head)
         .children(did)
-        .when(a.open, |d| {
+        .when(a.open || super::render::folding(cx, ("agent", ix)), |d| {
             let body = body(ix, a, cx);
-            d.child(unfold(cx, ("agent", ix), body))
+            d.child(unfold(cx, ("agent", ix), a.open, body))
         })
         .into_any_element()
 }
@@ -125,15 +126,13 @@ fn body(ix: usize, a: &Subagent, cx: &mut Context<TranscriptView>) -> AnyElement
                 }
             },
         );
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(6.))
-            .child(head)
-            .when(a.prompt_open, |d| {
+        div().flex().flex_col().gap(px(6.)).child(head).when(
+            a.prompt_open || super::render::folding(cx, ("agent-prompt", ix)),
+            |d| {
                 d.child(unfold(
                     cx,
                     ("agent-prompt", ix),
+                    a.prompt_open,
                     div()
                         .ml(px(26.))
                         .px(px(10.))
@@ -145,7 +144,8 @@ fn body(ix: usize, a: &Subagent, cx: &mut Context<TranscriptView>) -> AnyElement
                         .text_color(colors::text2())
                         .child(a.prompt.trim().to_string()),
                 ))
-            })
+            },
+        )
     });
     // a call still open when its subagent stopped will never end
     let ended = a.state != AgentState::Working;

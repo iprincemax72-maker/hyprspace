@@ -880,10 +880,11 @@ fn item(
                 .flex_col()
                 .gap(px(6.))
                 .child(head)
-                .when(*open, |d| {
+                .when(*open || folding(cx, ("thinking", ix)), |d| {
                     d.child(unfold(
                         cx,
                         ("thinking", ix),
+                        *open,
                         div()
                             .pl(px(26.))
                             .text_size(px(12.5))
@@ -1043,6 +1044,7 @@ pub(super) fn fold_head(
         .on_click(cx.listener(move |v, _: &ClickEvent, _, cx| {
             slide::flip(key.clone());
             toggle(v);
+            settle_fold(cx);
             cx.notify();
         }))
         .into_any_element()
@@ -1072,20 +1074,43 @@ pub(super) fn twist(key: &str, open: bool) -> AnyElement {
 pub(super) fn unfold(
     cx: &Context<TranscriptView>,
     id: impl Into<ElementId>,
+    open: bool,
     body: impl IntoElement,
 ) -> AnyElement {
     let key = fold_key(cx, &id.into());
     let body = div().relative().child(body);
     match slide::flipped(&key, UNFOLD) {
-        Some(n) => body
+        Some(n) if open => body
             .with_animation(
                 ("unfold", n),
                 Animation::new(UNFOLD).with_easing(ease_out),
                 |d, t| d.opacity(t).top(px(-6. * (1. - t))),
             )
             .into_any_element(),
+        Some(n) => body
+            .with_animation(
+                ("fold", n),
+                Animation::new(UNFOLD).with_easing(ease_out),
+                |d, t| d.opacity(1. - t).top(px(-6. * t)),
+            )
+            .into_any_element(),
         None => body.into_any_element(),
     }
+}
+
+pub(super) fn folding(cx: &Context<TranscriptView>, id: impl Into<ElementId>) -> bool {
+    slide::flipped(&fold_key(cx, &id.into()), UNFOLD).is_some()
+}
+
+// an animation that ends asks for no frame after it, so the folded body would stay drawn
+pub(super) fn settle_fold(cx: &mut Context<TranscriptView>) {
+    cx.spawn(async move |this, cx| {
+        cx.background_executor()
+            .timer(UNFOLD + Duration::from_millis(30))
+            .await;
+        let _ = this.update(cx, |_, cx| cx.notify());
+    })
+    .detach();
 }
 
 /// A run of tool calls as one line counting them, opening to the single calls.
@@ -1148,7 +1173,7 @@ fn tool_run(
         .flex_col()
         .gap(px(6.))
         .child(head)
-        .when(open, |d| {
+        .when(open || folding(cx, ("tool-run", start)), |d| {
             let calls: Vec<AnyElement> = (start..end)
                 .filter_map(|ix| match &v.model.items[ix] {
                     Item::Tool {
@@ -1160,6 +1185,7 @@ fn tool_run(
             d.child(unfold(
                 cx,
                 ("tool-run", start),
+                open,
                 div()
                     .pl(px(26.))
                     .flex()
@@ -1245,10 +1271,11 @@ pub(super) fn tool_card(
         .flex_col()
         .gap(px(6.))
         .child(head)
-        .when(open, |d| {
+        .when(open || folding(cx, body_id.clone()), |d| {
             d.child(unfold(
                 cx,
                 body_id,
+                open,
                 div()
                     .pl(px(26.))
                     .flex()

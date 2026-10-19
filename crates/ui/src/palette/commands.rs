@@ -6,11 +6,12 @@ use gpui::{
     AnyElement, AppContext, Context, Entity, Focusable, IntoElement, Window, anchored, deferred,
     div, point, prelude::*,
 };
-use hyprspace_proto::Opener;
+use hyprspace_proto::state::ThreadKind;
 use hyprspace_proto::state::{DockTab, Scheme};
+use hyprspace_proto::{Command, Opener};
 use hyprspace_theme::THEMES;
 
-use super::{Glyph, IN_TERMINALS, Item, Palette, PaletteEvent, TogglePalette};
+use super::{Glyph, IN_TERMINALS, IN_THREADS, Item, Palette, PaletteEvent, TogglePalette};
 use crate::root::{Action, Root, Screen, View};
 use crate::settings::{TABS, Tab};
 use crate::zoom::px;
@@ -196,6 +197,50 @@ impl Root {
         out
     }
 
+    fn search_threads(&mut self, query: &str) {
+        self.finding += 1;
+        let query = query.trim();
+        if query.chars().count() < 2 {
+            return;
+        }
+        let journals = self
+            .state
+            .spaces
+            .iter()
+            .filter(|s| s.machine.is_none())
+            .flat_map(|s| &s.threads)
+            .filter(|t| matches!(t.kind, ThreadKind::Structured { .. }))
+            .map(|t| (t.id, t.journal()))
+            .collect();
+        self.client.send(Command::SearchJournals {
+            request: self.finding,
+            query: query.to_string(),
+            journals,
+        });
+    }
+
+    pub(crate) fn found(&mut self, request: u64, hits: &[(u64, String)], cx: &mut Context<Self>) {
+        let Some(palette) = self.palette.clone().filter(|_| request == self.finding) else {
+            return;
+        };
+        let items: Vec<Item> = hits
+            .iter()
+            .filter_map(|(id, line)| {
+                let (s, t) = self.state.thread(*id)?;
+                Some(
+                    Item::new(
+                        IN_THREADS,
+                        format!("{} \u{203a} {}", s.name, t.title),
+                        Glyph::Icon("text-search"),
+                        Cmd::Thread(*id),
+                    )
+                    .sub(line.clone()),
+                )
+            })
+            .collect();
+        palette.update(cx, |p, cx| p.add_hits(items, cx));
+    }
+
     /// Terminal threads whose scrollback holds `query`, newest line per thread.
     fn terminal_hits(&self, query: &str, cx: &gpui::App) -> Vec<Item> {
         if query.trim().chars().count() < 2 {
@@ -264,6 +309,7 @@ impl Root {
             PaletteEvent::Query(q) => {
                 let hits = self.terminal_hits(q, cx);
                 palette.update(cx, |p, cx| p.set_hits(hits, cx));
+                self.search_threads(q);
             }
             PaletteEvent::Close => self.toggle_palette(&TogglePalette, window, cx),
             PaletteEvent::Run(cmd) => {

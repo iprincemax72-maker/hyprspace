@@ -150,6 +150,14 @@ pub fn tag(name: &str, dark: bool) -> (Color, Color) {
     }
 }
 
+pub fn rainbow(hue: f64, dark: bool) -> Color {
+    if dark {
+        oklch(0.76, 0.15, hue)
+    } else {
+        oklch(0.62, 0.18, hue)
+    }
+}
+
 /// The UI font, zeron's. The UI bundles it (crates/ui/assets/fonts).
 pub const SANS: &str = "Geist";
 

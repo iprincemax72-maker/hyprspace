@@ -5,6 +5,7 @@
 
 mod code;
 mod fade;
+pub mod find;
 mod render;
 pub mod select;
 

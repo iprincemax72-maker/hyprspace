@@ -210,6 +210,7 @@ async fn serve(
     peers: Peers,
 ) {
     let journals = store.dir().join("journals");
+    let searching = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let requests = Requests::new(store, tx.clone());
     let delegates = delegate::Delegates::default();
     let mut structured: HashMap<SessionId, Live> = HashMap::new();
@@ -379,6 +380,35 @@ async fn serve(
                 let file = journal::path(&journals, &journal);
                 block_in_place(|| journal::trim(&file, keep));
             }
+            Command::SearchJournals {
+                request,
+                query,
+                journals: names,
+            } => {
+                use std::sync::atomic::Ordering;
+                searching.store(request, Ordering::Relaxed);
+                let (searching, dir, events) = (searching.clone(), journals.clone(), tx.clone());
+                tokio::task::spawn_blocking(move || {
+                    let query = query.to_lowercase();
+                    let mut hits = Vec::new();
+                    for (thread, name) in names {
+                        if searching.load(Ordering::Relaxed) != request {
+                            return;
+                        }
+                        if let Some(line) = journal::search(&journal::path(&dir, &name), &query) {
+                            hits.push((thread, line));
+                        }
+                    }
+                    let _ = events.unbounded_send(Event::Found { request, hits });
+                });
+            }
+            Command::CopyJournal { from, to, keep } => {
+                let (from, to) = (
+                    journal::path(&journals, &from),
+                    journal::path(&journals, &to),
+                );
+                block_in_place(|| journal::copy(&from, &to, keep));
+            }
             Command::LoadState => requests.load_state(),
             Command::SaveState { state } => block_in_place(|| requests.save_state(&state)),
             Command::LoadAgents => requests.load_agents(),
@@ -443,6 +473,15 @@ async fn serve(
                 });
             }
             Command::Folder(cmd) => folders.handle(cmd, tx.clone()),
+            Command::MakeDir { path } => {
+                let tx = tx.clone();
+                tokio::task::spawn_blocking(move || {
+                    let entries = folder::make_dir(&path);
+                    let _ = tx.unbounded_send(Event::Folder(
+                        hyprspace_proto::folder::FolderEvent::Dir { path, entries },
+                    ));
+                });
+            }
             Command::Usage(cmd) => usage::handle(cmd, tx.clone()),
             Command::Skills(cmd) => skills::handle(cmd, tx.clone()),
             Command::Update(cmd) => update::handle(cmd, tx.clone()),

@@ -158,9 +158,78 @@ pub fn import(file: &Path, conversation: &str) {
 }
 
 pub fn trim(file: &Path, keep: usize) {
-    let Ok(f) = File::open(file) else {
-        return;
+    if let Some(kept) = head(file, keep) {
+        let tmp = file.with_extension("jsonl.tmp");
+        if std::fs::write(&tmp, kept).is_ok() {
+            let _ = std::fs::rename(&tmp, file);
+        }
+    }
+}
+
+pub fn copy(from: &Path, to: &Path, keep: usize) {
+    if let Some(kept) = head(from, keep) {
+        let _ = std::fs::write(to, kept);
+    }
+}
+
+/// The newest line of the file's messages and replies holding `query`, which is lowercase, cut
+/// around the match.
+pub fn search(file: &Path, query: &str) -> Option<String> {
+    let f = File::open(file).ok()?;
+    let mut last = None;
+    let mut reply = String::new();
+    let mut look = |text: &str| {
+        if let Some(line) = snippet(text, query) {
+            last = Some(line);
+        }
     };
+    for line in BufReader::new(f).lines().map_while(Result::ok) {
+        if !line.starts_with(r#"{"type":"prompt""#)
+            && !line.contains(r#""type":"text""#)
+            && !line.contains(r#""type":"finished""#)
+        {
+            continue;
+        }
+        match serde_json::from_str::<Entry>(&line) {
+            Ok(Entry::Prompt { prompt }) => {
+                look(&std::mem::take(&mut reply));
+                look(&prompt.text);
+            }
+            Ok(Entry::Run {
+                event: RunEvent::Text { text },
+            }) => reply.push_str(&text),
+            Ok(Entry::Run {
+                event: RunEvent::Finished { .. },
+            }) => look(&std::mem::take(&mut reply)),
+            _ => {}
+        }
+    }
+    look(&reply);
+    last
+}
+
+fn snippet(text: &str, query: &str) -> Option<String> {
+    let line = text
+        .lines()
+        .rev()
+        .find(|l| l.to_lowercase().contains(query))?;
+    let lower = line.to_lowercase();
+    let chars: Vec<char> = line.trim_end().chars().collect();
+    let at = lower[..lower.find(query)?].chars().count().min(chars.len());
+    let from = at.saturating_sub(24);
+    let to = (from + 72).min(chars.len());
+    let cut: String = chars[from..to].iter().collect();
+    let cut = cut.trim();
+    Some(match (from > 0, to < chars.len()) {
+        (true, true) => format!("...{cut}..."),
+        (true, false) => format!("...{cut}"),
+        (false, true) => format!("{cut}..."),
+        (false, false) => cut.to_string(),
+    })
+}
+
+fn head(file: &Path, keep: usize) -> Option<String> {
+    let f = File::open(file).ok()?;
     let mut prompts = 0;
     let mut kept = String::new();
     for line in BufReader::new(f).lines().map_while(Result::ok) {
@@ -173,10 +242,7 @@ pub fn trim(file: &Path, keep: usize) {
         kept.push_str(&line);
         kept.push('\n');
     }
-    let tmp = file.with_extension("jsonl.tmp");
-    if std::fs::write(&tmp, kept).is_ok() {
-        let _ = std::fs::rename(&tmp, file);
-    }
+    Some(kept)
 }
 
 #[cfg(test)]
@@ -217,6 +283,47 @@ mod tests {
         );
         trim(&file, 0);
         assert!(load(&file).is_empty());
+    }
+
+    #[test]
+    fn a_copy_takes_the_start_and_leaves_the_original() {
+        let dir = tempfile::tempdir().unwrap();
+        let (from, to) = (path(dir.path(), "thread-2"), path(dir.path(), "thread-3"));
+        let j = Journal::open(&from);
+        for p in ["one", "two"] {
+            j.record(Entry::Prompt {
+                prompt: Prompt::text(p),
+            });
+            j.record(run(text(p)));
+        }
+        drop(j);
+        copy(&from, &to, 1);
+        assert_eq!(load(&to).len(), 2);
+        assert_eq!(load(&from).len(), 4);
+    }
+
+    #[test]
+    fn search_finds_the_newest_line_across_streamed_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = path(dir.path(), "thread-5");
+        let j = Journal::open(&file);
+        j.record(Entry::Prompt {
+            prompt: Prompt::text("fix the Login page"),
+        });
+        j.record(run(RunEvent::ToolDone {
+            id: "t".into(),
+            ok: true,
+            output: "login in a tool's output".into(),
+        }));
+        j.record(run(text("The log")));
+        j.record(run(text("in form posts twice.\nUnrelated line.")));
+        drop(j);
+        assert_eq!(
+            search(&file, "login").as_deref(),
+            Some("The login form posts twice.")
+        );
+        assert_eq!(search(&file, "page").as_deref(), Some("fix the Login page"));
+        assert_eq!(search(&file, "output"), None);
     }
 
     #[test]

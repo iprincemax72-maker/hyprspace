@@ -133,6 +133,30 @@ async fn resumes_a_thread_by_id() {
 }
 
 #[tokio::test]
+async fn a_fork_opens_a_copy_instead_of_the_thread() {
+    let dir = tempfile::tempdir().unwrap();
+    let launch = Launch {
+        resume: Some("th-9".into()),
+        rewind: Some(hyprspace_proto::Rewind {
+            text: "go".into(),
+            nth: 0,
+            fork: true,
+        }),
+        ..Launch::new(Agent::Codex, dir.path())
+    };
+    let (session, mut events) = start_with(&codex(), launch);
+    session.send(Prompt::text("args"));
+    let run = events.run().await;
+    assert!(
+        run.iter()
+            .any(|e| matches!(e, RunEvent::Started { thread, .. } if thread == "fork-of-th-9"))
+    );
+    let seen: Value = serde_json::from_str(&text(&run)).unwrap();
+    assert_eq!(seen["thread"]["threadId"], "th-9");
+    assert_eq!(seen["turn"]["threadId"], "fork-of-th-9");
+}
+
+#[tokio::test]
 async fn a_thread_that_is_gone_fails_the_session() {
     let dir = tempfile::tempdir().unwrap();
     let launch = Launch {

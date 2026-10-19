@@ -67,6 +67,17 @@ pub enum Command {
         journal: String,
         keep: usize,
     },
+    CopyJournal {
+        from: String,
+        to: String,
+        keep: usize,
+    },
+    /// Answered with `Found`. A newer search stops the ones before it.
+    SearchJournals {
+        request: u64,
+        query: String,
+        journals: Vec<(u64, String)>,
+    },
     Configure {
         id: SessionId,
         launch: Launch,
@@ -146,6 +157,9 @@ pub enum Command {
         request: u64,
         path: PathBuf,
     },
+    MakeDir {
+        path: PathBuf,
+    },
     /// The file tree, the git tab, the viewer and the open-in actions (`folder.rs`).
     Folder(FolderCommand),
     /// Live limits and local usage for the meter and Settings (`usage.rs`).
@@ -221,6 +235,11 @@ pub enum Event {
     Journal {
         id: SessionId,
         entries: Vec<Entry>,
+    },
+    /// Threads whose messages hold the searched text, with the newest line that does.
+    Found {
+        request: u64,
+        hits: Vec<(u64, String)>,
     },
     /// Entries a host recorded after the journal it sent, for a thread on another computer.
     Recorded {
@@ -312,6 +331,19 @@ mod tests {
             Command::TrimJournal {
                 journal: "thread-4".into(),
                 keep: 2,
+            },
+            Command::CopyJournal {
+                from: "thread-4".into(),
+                to: "thread-9".into(),
+                keep: 2,
+            },
+            Command::MakeDir {
+                path: PathBuf::from("/tmp/new"),
+            },
+            Command::SearchJournals {
+                request: 7,
+                query: "login".into(),
+                journals: vec![(4, "thread-4".into())],
             },
             Command::Configure {
                 id: SessionId(1),
@@ -446,6 +478,10 @@ mod tests {
             Event::Failed {
                 id: SessionId(3),
                 message: "no shell".into(),
+            },
+            Event::Found {
+                request: 7,
+                hits: vec![(4, "...the login form...".into())],
             },
             Event::Journal {
                 id: SessionId(1),

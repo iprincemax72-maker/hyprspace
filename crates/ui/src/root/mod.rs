@@ -170,6 +170,7 @@ pub struct Root {
     pub(crate) skills: Entity<crate::skills::Skills>,
     /// The command palette while it is open (`crate::palette`).
     pub(crate) palette: Option<Entity<crate::palette::Palette>>,
+    pub(crate) finding: u64,
     /// The in-app folder browser for opening a folder as a space (`crate::folders`).
     pub(crate) folder_picker: Option<Entity<crate::folders::FolderPicker>>,
     /// The intro while it is showing (`crate::intro`).
@@ -355,6 +356,7 @@ impl Root {
             limits,
             skills,
             palette: None,
+            finding: 0,
             folder_picker: None,
             intro: None,
             _intro_exit: None,
@@ -429,6 +431,7 @@ impl Root {
                     v.update(cx, |v, cx| v.replay(entries, cx));
                 }
             }
+            Event::Found { request, hits } => self.found(request, &hits, cx),
             Event::Recorded { id, entries } => {
                 if let Some(View::Structured(v)) = self.view_of(id) {
                     v.update(cx, |v, cx| v.recorded(entries, cx));

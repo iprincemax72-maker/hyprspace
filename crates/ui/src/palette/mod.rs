@@ -24,6 +24,7 @@ actions!(palette, [TogglePalette, SelectPrev, SelectNext]);
 
 /// The section terminal hits go under.
 pub const IN_TERMINALS: &str = "In terminal output";
+pub const IN_THREADS: &str = "In threads";
 
 /// Binds the palette's keys. Call after `input::bind_keys`, so its arrows win inside the
 /// palette's own text box.
@@ -122,13 +123,8 @@ impl EventEmitter<PaletteEvent> for Palette {}
 
 impl Palette {
     pub fn new(commands: Vec<Item>, back: Option<FocusHandle>, cx: &mut Context<Self>) -> Self {
-        let input = cx.new(|cx| {
-            TextInput::new(
-                "Type a command, a thread, or text from a terminal",
-                false,
-                cx,
-            )
-        });
+        let input =
+            cx.new(|cx| TextInput::new("Type a command, a thread, or text to find", false, cx));
         let sub = cx.subscribe(&input, |p, input, e: &InputEvent, cx| match e {
             InputEvent::Changed => {
                 let q = input.read(cx).text().to_string();
@@ -158,6 +154,11 @@ impl Palette {
     /// Terminal hits for the query now in the box.
     pub fn set_hits(&mut self, hits: Vec<Item>, cx: &mut Context<Self>) {
         self.hits = hits;
+        cx.notify();
+    }
+
+    pub fn add_hits(&mut self, hits: Vec<Item>, cx: &mut Context<Self>) {
+        self.hits.extend(hits);
         cx.notify();
     }
 

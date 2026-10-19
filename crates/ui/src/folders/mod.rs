@@ -131,6 +131,8 @@ pub struct FolderPicker {
     request: Option<u64>,
     line: Option<String>,
     error: Option<String>,
+    naming: bool,
+    making: Option<PathBuf>,
     _subs: Vec<Subscription>,
 }
 
@@ -170,6 +172,7 @@ impl FolderPicker {
                     cx.notify();
                 }
                 InputEvent::Submit => p.submit(cx),
+                InputEvent::Cancel if p.naming => p.stop_naming(cx),
                 InputEvent::Cancel => p.choose(Stage::Sources, cx),
                 InputEvent::Images(_) => {}
             }),
@@ -202,6 +205,8 @@ impl FolderPicker {
             request: None,
             line: None,
             error: None,
+            naming: false,
+            making: None,
             _subs: subs,
         };
         p.go(&start, cx);
@@ -266,10 +271,59 @@ impl FolderPicker {
         entries: &Result<Vec<DirEntry>, String>,
         cx: &mut Context<Self>,
     ) {
+        if self.making.as_deref() == Some(path) {
+            self.making = None;
+            match entries {
+                Ok(_) => {
+                    self.naming = false;
+                    self.refocus = true;
+                    self.go(path, cx);
+                }
+                Err(e) => {
+                    self.error = Some(e.clone());
+                    cx.notify();
+                }
+            }
+            return;
+        }
         if path == self.dir {
             self.entries = Some(entries.clone());
             self.narrow(cx);
         }
+    }
+
+    fn start_naming(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.naming = true;
+        self.error = None;
+        self.field.update(cx, |i, cx| {
+            i.set_text("", cx);
+            i.set_placeholder("New folder", cx);
+        });
+        window.focus(&self.field.focus_handle(cx), cx);
+        cx.notify();
+    }
+
+    fn stop_naming(&mut self, cx: &mut Context<Self>) {
+        self.naming = false;
+        self.making = None;
+        self.error = None;
+        self.refocus = true;
+        cx.notify();
+    }
+
+    pub(super) fn make_dir(&mut self, cx: &mut Context<Self>) {
+        let name = self.field.read(cx).text().trim().to_string();
+        if name.is_empty() || self.making.is_some() {
+            return;
+        }
+        if name.contains(SEPS) {
+            self.error = Some("Type just the name, with no slashes.".to_string());
+            cx.notify();
+            return;
+        }
+        let path = self.dir.join(name);
+        self.making = Some(path.clone());
+        self.client.send(Command::MakeDir { path });
     }
 
     fn rows(&self) -> usize {
@@ -426,6 +480,36 @@ impl Render for FolderPicker {
                 .text_color(colors::text3())
                 .child(text)
         };
+        if self.naming {
+            list = list.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(10.))
+                    .h(px(34.))
+                    .pl(px(8.))
+                    .pr(px(8.))
+                    .rounded(px(8.))
+                    .bg(colors::ink(0.06))
+                    .child(icon("folder-plus", 14., accent))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_size(px(13.))
+                            .child(self.field.clone()),
+                    )
+                    .children(self.error.clone().map(|e| {
+                        div()
+                            .flex_none()
+                            .max_w(px(280.))
+                            .truncate()
+                            .text_size(px(11.5))
+                            .text_color(colors::error())
+                            .child(e)
+                    })),
+            );
+        }
         for i in 0..self.rows() {
             let up = self.up.is_some() && i == 0;
             let (glyph, label) = if up {
@@ -629,6 +713,21 @@ impl Render for FolderPicker {
                     .child(div().flex_1())
                     .when(self.machine.is_none(), |d| {
                         d.child(
+                            div()
+                                .id("folders-new")
+                                .px(px(10.))
+                                .py(px(5.))
+                                .rounded(px(7.))
+                                .text_size(px(12.))
+                                .text_color(colors::text2())
+                                .cursor_pointer()
+                                .hover(|s| s.bg(colors::ink(0.08)).text_color(colors::text1()))
+                                .child("New folder")
+                                .on_click(cx.listener(|p, _: &ClickEvent, window, cx| {
+                                    p.start_naming(window, cx)
+                                })),
+                        )
+                        .child(
                             div()
                                 .id("folders-system")
                                 .px(px(10.))

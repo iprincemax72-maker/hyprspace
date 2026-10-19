@@ -64,6 +64,16 @@ pub(super) fn page() -> AnyElement {
                     "",
                     &[chord(&["Ctrl", "`"])],
                 ),
+                line(
+                    "Find in a structured thread",
+                    "Enter steps through matches.",
+                    &[chord(&[MOD, "F"])],
+                ),
+                line(
+                    "Your previous or next message",
+                    "In a structured thread.",
+                    &[chord(&[ALT, "\u{2191}"]), chord(&[ALT, "\u{2193}"])],
+                ),
                 line("Zoom in", "", &[chord(&[MOD, "+"])]),
                 line("Zoom out", "", &[chord(&[MOD, "-"])]),
                 line("Actual size", "", &[chord(&[MOD, "0"])]),

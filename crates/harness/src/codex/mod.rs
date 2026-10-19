@@ -71,7 +71,7 @@ fn policy(permission: Permission) -> (&'static str, &'static str) {
 }
 
 /// `thread/start` or `thread/resume` and its params.
-fn thread_request(launch: &Launch, mcp: Option<&crate::Mcp>) -> (&'static str, Value) {
+fn thread_request(launch: &Launch, mcp: Option<&crate::Mcp>, fork: bool) -> (&'static str, Value) {
     let (approval, sandbox) = policy(launch.permission);
     let mut p = json!({ "approvalPolicy": approval, "sandbox": sandbox });
     if let Some(mcp) = mcp {
@@ -90,7 +90,7 @@ fn thread_request(launch: &Launch, mcp: Option<&crate::Mcp>) -> (&'static str, V
             p["threadId"] = json!(thread);
             // history is not drawn yet, and a long thread's turns run to megabytes
             p["excludeTurns"] = json!(true);
-            ("thread/resume", p)
+            (if fork { "thread/fork" } else { "thread/resume" }, p)
         }
         None => {
             p["cwd"] = json!(launch.cwd);
@@ -263,10 +263,11 @@ impl Actor {
         self.rpc.request("initialize", hello).await?;
         self.rpc.notify("initialized");
         let rewind = self.launch.rewind.take();
-        let (method, params) = thread_request(&self.launch, self.mcp.as_ref());
+        let fork = rewind.as_ref().is_some_and(|r| r.fork);
+        let (method, params) = thread_request(&self.launch, self.mcp.as_ref(), fork);
         let opened = self.rpc.request(method, params).await?;
         self.thread = text(&opened["thread"]["id"]);
-        if let Some(rewind) = rewind.filter(|_| method == "thread/resume") {
+        if let Some(rewind) = rewind.filter(|_| method != "thread/start") {
             self.rewind(&rewind).await;
         }
         let cwd = opened["cwd"].as_str().map(PathBuf::from);
@@ -860,7 +861,7 @@ mod tests {
     #[test]
     fn permissions_map_to_codex_presets() {
         let mut launch = Launch::new(Agent::Codex, "/w");
-        let (method, p) = thread_request(&launch, None);
+        let (method, p) = thread_request(&launch, None, false);
         assert_eq!(method, "thread/start");
         assert_eq!(p["approvalPolicy"], "on-request");
         assert_eq!(p["sandbox"], "read-only");
@@ -869,7 +870,7 @@ mod tests {
         launch.permission = Permission::Bypass;
         launch.model = Some("gpt-5.5".into());
         launch.resume = Some("th-1".into());
-        let (method, p) = thread_request(&launch, None);
+        let (method, p) = thread_request(&launch, None, false);
         assert_eq!(method, "thread/resume");
         assert_eq!(p["threadId"], "th-1");
         assert_eq!(p["sandbox"], "danger-full-access");

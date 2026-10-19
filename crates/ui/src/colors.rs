@@ -102,6 +102,10 @@ pub fn tag(name: &str) -> (Hsla, Hsla) {
     (hsla(fill), hsla(ink))
 }
 
+pub fn rainbow(hue: f32) -> Hsla {
+    hsla(hyprspace_theme::rainbow(hue as f64, theme().dark))
+}
+
 /// An agent's signature color and its gradient's second stop.
 pub fn brand(agent: Agent) -> (Hsla, Hsla) {
     let (a, b) = hyprspace_theme::brand(agent.cli());

@@ -48,8 +48,8 @@ gets it here first.
   Activity also reads two providers it can't start, OpenCode and Grok.
 - **Resume list**: the conversations an agent saved on disk for a folder, which the composer
   offers to reopen.
-- **Command palette**: the searchable list of commands, threads and terminal text (Ctrl+K or
-  Ctrl+Shift+P, anywhere).
+- **Command palette**: the searchable list of commands, threads, what was said in structured
+  threads, and terminal text (Ctrl+K or Ctrl+Shift+P, anywhere).
 - **Intro**: the steps shown once on a first run with no spaces, replayable from the palette.
 - **Skill**: a Claude skill (`.claude/skills/<name>/SKILL.md`) or slash command
   (`.claude/commands/<name>.md`), from the project or the user's home.

@@ -48,6 +48,8 @@ pub struct Launch {
 pub struct Rewind {
     pub text: String,
     pub nth: usize,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub fork: bool,
 }
 
 impl Launch {

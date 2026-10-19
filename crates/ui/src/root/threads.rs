@@ -470,6 +470,19 @@ impl Root {
             TranscriptEvent::NewThread => {
                 self.work.compose = self.state.thread(thread).map(|(s, _)| s.id);
             }
+            TranscriptEvent::Fork {
+                launch,
+                keep,
+                text,
+                images,
+            } => self.fork_thread(
+                thread,
+                launch.clone(),
+                *keep,
+                text.clone(),
+                images.clone(),
+                cx,
+            ),
             TranscriptEvent::Status(s) => {
                 self.set_status(thread, *s);
                 self.delegation_moved(thread, *s, cx);
@@ -520,11 +533,12 @@ impl Root {
                 self.save();
             }
             TranscriptEvent::SwitchFailed => self.switch_back(thread, cx),
-            TranscriptEvent::Draft(text) => {
+            TranscriptEvent::Draft(text, images) => {
                 if let Some(t) = self.state.thread_mut(thread)
-                    && t.draft != *text
+                    && (t.draft != *text || t.draft_images != *images)
                 {
                     t.draft = text.clone();
+                    t.draft_images = images.clone();
                     self.save();
                 }
             }
@@ -635,6 +649,47 @@ impl Root {
             cx.notify();
         }
         Some(thread.id)
+    }
+
+    fn fork_thread(
+        &mut self,
+        from: u64,
+        launch: hyprspace_proto::Launch,
+        keep: usize,
+        draft: String,
+        images: Vec<PathBuf>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((space, title, journal)) = self
+            .state
+            .thread(from)
+            .map(|(s, t)| (s.id, t.title.clone(), t.journal()))
+        else {
+            return;
+        };
+        let thread = Thread {
+            id: self.state.take_id(),
+            title: format!("{title} (fork)"),
+            kind: ThreadKind::Structured { launch },
+            created: now_ms(),
+            touched: now_ms(),
+            draft,
+            draft_images: images,
+            ..Thread::default()
+        };
+        self.client.send(Command::CopyJournal {
+            from: journal,
+            to: thread.journal(),
+            keep,
+        });
+        let Some(s) = self.state.space_mut(space) else {
+            return;
+        };
+        s.threads.insert(0, thread.clone());
+        self.make_view(&thread, None, true, cx);
+        self.work.open = Some(thread.id);
+        self.save();
+        cx.notify();
     }
 
     /// A plain shell in the space's folder, on screen when `show`.

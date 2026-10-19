@@ -155,6 +155,49 @@ async fn passes_model_effort_permission_and_resumes_in_the_original_folder() {
 }
 
 #[tokio::test]
+async fn a_fork_never_takes_over_the_original_session() {
+    let config = tempfile::tempdir().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let project = config.path().join("projects").join("encoded");
+    std::fs::create_dir_all(&project).unwrap();
+    let lines = [
+        serde_json::json!({ "type": "user", "cwd": dir.path(), "message": { "content": "first" } }),
+        serde_json::json!({ "type": "user", "parentUuid": "a1", "message": { "content": "go" } }),
+    ];
+    let body: String = lines.iter().map(|l| format!("{l}\n")).collect();
+    std::fs::write(project.join("abc-1.jsonl"), body).unwrap();
+    let harness = claude().with_config_dir(config.path());
+    let fork = |text: &str| Launch {
+        resume: Some("abc-1".into()),
+        rewind: Some(hyprspace_proto::Rewind {
+            text: text.into(),
+            nth: 0,
+            fork: true,
+        }),
+        ..Launch::new(Agent::Claude, dir.path())
+    };
+
+    let (emit, mut seen) = events();
+    let session = harness.start(fork("go"), emit).unwrap();
+    session.send(Prompt::text("args"));
+    let args = text(&seen.run().await);
+    assert!(
+        args.contains("--resume-session-at a1 --fork-session"),
+        "{args}"
+    );
+
+    let (emit, mut seen) = events();
+    let session = harness.start(fork("never sent"), emit).unwrap();
+    session.send(Prompt::text("args"));
+    let run = seen.run().await;
+    let args = text(&run);
+    assert!(args.contains("--resume abc-1"), "{args}");
+    assert!(args.contains("--fork-session"), "{args}");
+    assert!(!args.contains("--resume-session-at"), "{args}");
+    assert!(run.iter().any(|e| matches!(e, RunEvent::Error { .. })));
+}
+
+#[tokio::test]
 async fn changes_apply_to_the_running_cli() {
     let dir = tempfile::tempdir().unwrap();
     let (session, mut events) = start(&claude(), dir.path());

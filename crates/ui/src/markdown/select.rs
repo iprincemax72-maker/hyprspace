@@ -56,6 +56,7 @@ pub fn reset(surface: Arc<str>) -> impl IntoElement {
         move |_, _, window, _| {
             PAINTED.with(|p| p.borrow_mut().retain(|e| e.surface != surface));
             SURFACE.with(|s| *s.borrow_mut() = surface.clone());
+            super::find::reset();
             track(window, surface.clone());
         },
     )
@@ -94,6 +95,7 @@ pub fn wrap(key: &str, text: SharedString, layout: TextLayout, body: AnyElement)
         move |_, hitbox, window, _| {
             let surface = SURFACE.with(|s| s.borrow().clone());
             window.set_cursor_style(CursorStyle::IBeam, &hitbox);
+            super::find::paint(&surface, &key, &text, &layout, window);
             if let Some(range) = wash(&surface, &key) {
                 for rect in rects(&layout, &range) {
                     window.paint_quad(fill(rect, colors::selection()));
@@ -409,7 +411,7 @@ fn word(text: &str, ix: usize) -> Range<usize> {
 }
 
 /// The boxes to wash for `range`: one per visual line it covers, since soft wraps split it.
-fn rects(layout: &TextLayout, range: &Range<usize>) -> Vec<Bounds<Pixels>> {
+pub(super) fn rects(layout: &TextLayout, range: &Range<usize>) -> Vec<Bounds<Pixels>> {
     let bounds = layout.bounds();
     let line = layout.line_height();
     let at = |ix| layout.position_for_index(ix);

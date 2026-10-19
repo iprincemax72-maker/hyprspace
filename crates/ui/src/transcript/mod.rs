@@ -7,9 +7,11 @@ mod ask;
 mod branch;
 mod changes;
 mod commands;
+mod find;
 mod model;
 mod motion;
 mod render;
+mod ring;
 mod rows;
 mod subagent;
 mod tool;
@@ -19,8 +21,8 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use gpui::{
-    AppContext, Context, Entity, EventEmitter, ExternalPaths, Focusable, IntoElement,
-    ListAlignment, ListState, PathPromptOptions, Render, Subscription, Task, Window,
+    AppContext, Context, Entity, EventEmitter, ExternalPaths, Focusable, IntoElement, KeyBinding,
+    ListAlignment, ListState, PathPromptOptions, Render, Subscription, Task, Window, actions,
 };
 use hyprspace_proto::agents::AgentCatalog;
 use hyprspace_proto::{Answer, Client, Command, Entry, Launch, Prompt, RunEvent, SessionId};
@@ -44,13 +46,19 @@ pub enum TranscriptEvent {
     Queue(Vec<Prompt>),
     Limited(Option<u64>),
     ResumeAt(Option<u64>),
-    Draft(String),
+    Draft(String, Vec<PathBuf>),
     SwitchFailed,
     ShowMedia(PathBuf),
     Commands(hyprspace_proto::Agent, Vec<String>),
     Open(hyprspace_proto::Pane),
     ViewChanges,
     NewThread,
+    Fork {
+        launch: Launch,
+        keep: usize,
+        text: String,
+        images: Vec<PathBuf>,
+    },
 }
 
 pub struct TranscriptView {
@@ -91,6 +99,7 @@ pub struct TranscriptView {
     open_runs: HashSet<usize>,
     /// The reply box is empty, so a live run shows Stop instead of Send.
     empty: bool,
+    ultra: bool,
     branch: Option<String>,
     /// The model was picked again since the CLI last said which one it runs, so that report no
     /// longer tells what the next run uses.
@@ -118,6 +127,7 @@ pub struct TranscriptView {
     _focus: Vec<Subscription>,
     remote: bool,
     echoed: VecDeque<String>,
+    find: Option<find::Find>,
 }
 
 impl EventEmitter<TranscriptEvent> for TranscriptView {}
@@ -146,6 +156,7 @@ impl TranscriptView {
                 attach::save_later(images.clone(), cx, |this, saved, cx| {
                     this.saving -= 1;
                     this.images.extend(saved);
+                    this.keep_draft(cx);
                     if this.saving == 0 && std::mem::take(&mut this.send_saved) {
                         this.submit(cx);
                     }
@@ -155,9 +166,10 @@ impl TranscriptView {
             InputEvent::Changed => {
                 this.keep_draft(cx);
                 this.refresh_suggest(cx);
-                let empty = this.input.read(cx).text().is_empty();
-                if empty != this.empty {
-                    this.empty = empty;
+                let text = this.input.read(cx).text();
+                let (empty, ultra) = (text.is_empty(), ring::says_ultrathink(text));
+                if (empty, ultra) != (this.empty, this.ultra) {
+                    (this.empty, this.ultra) = (empty, ultra);
                     cx.notify();
                 }
             }
@@ -180,7 +192,12 @@ impl TranscriptView {
             probing: false,
             after: None,
             input,
-            images: Vec::new(),
+            images: thread
+                .draft_images
+                .iter()
+                .filter(|p| p.exists())
+                .cloned()
+                .collect(),
             saving: 0,
             send_saved: false,
             list: ListState::new(0, ListAlignment::Top, px(600.)),
@@ -196,6 +213,7 @@ impl TranscriptView {
             effort_anchor: Anchor::default(),
             open_runs: HashSet::new(),
             empty: thread.draft.is_empty(),
+            ultra: ring::says_ultrathink(&thread.draft),
             branch,
             repicked: false,
             status: Status::Idle,
@@ -221,6 +239,7 @@ impl TranscriptView {
             _focus: Vec::new(),
             remote: false,
             echoed: VecDeque::new(),
+            find: None,
         };
         if history {
             view.client.send(Command::LoadJournal {
@@ -299,16 +318,17 @@ impl TranscriptView {
 
     fn keep_draft(&mut self, cx: &mut Context<Self>) {
         let text = self.input.read(cx).text().to_string();
-        if text.is_empty() {
+        let images = self.images.clone();
+        if text.is_empty() && images.is_empty() {
             self.draft = None;
-            cx.emit(TranscriptEvent::Draft(text));
+            cx.emit(TranscriptEvent::Draft(text, images));
             return;
         }
         self.draft = Some(cx.spawn(async move |this, cx| {
             cx.background_executor()
                 .timer(std::time::Duration::from_millis(600))
                 .await;
-            let _ = this.update(cx, |_, cx| cx.emit(TranscriptEvent::Draft(text)));
+            let _ = this.update(cx, |_, cx| cx.emit(TranscriptEvent::Draft(text, images)));
         }));
     }
 
@@ -421,6 +441,15 @@ impl TranscriptView {
         self.images.splice(0..0, prompt.images);
         self.input.update(cx, |i, cx| i.set_text(text, cx));
         window.focus(&self.input.focus_handle(cx), cx);
+    }
+
+    pub(super) fn move_queued(&mut self, from: usize, to: usize, cx: &mut Context<Self>) {
+        if from == to || from >= self.queue.len() || to >= self.queue.len() {
+            return;
+        }
+        let prompt = self.queue.remove(from);
+        self.queue.insert(to, prompt);
+        self.queue_changed(cx);
     }
 
     pub(super) fn unqueue(&mut self, ix: usize, cx: &mut Context<Self>) {
@@ -644,22 +673,65 @@ impl TranscriptView {
         }
     }
 
+    pub(super) fn retry_at(&self) -> Option<usize> {
+        if self.remote || self.loading || self.model.running() || self.resume_at.is_some() {
+            return None;
+        }
+        let (ix, item) = self
+            .model
+            .items
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, i)| !matches!(i, Item::Changes { .. } | Item::Note(_)))?;
+        let failed = matches!(
+            item,
+            Item::Error(_)
+                | Item::Finished {
+                    status: hyprspace_proto::RunStatus::Failed,
+                    ..
+                }
+        );
+        (failed && self.last_prompt().is_some()).then_some(ix)
+    }
+
+    fn last_prompt(&self) -> Option<Prompt> {
+        self.model.items.iter().rev().find_map(|i| match i {
+            Item::User {
+                text,
+                images,
+                steer: false,
+            } if !text.trim().is_empty() || !images.is_empty() => Some(Prompt {
+                text: text.clone(),
+                images: images.clone(),
+            }),
+            _ => None,
+        })
+    }
+
+    pub(super) fn retry(&mut self, cx: &mut Context<Self>) {
+        if let Some(prompt) = self.last_prompt() {
+            self.offer(prompt, cx);
+        }
+    }
+
     pub(super) fn can_rewind(&self) -> bool {
         !self.remote && !self.loading && !self.model.running()
     }
 
-    pub(super) fn rewind(&mut self, ix: usize, cx: &mut Context<Self>) {
+    /// The message at `ix`, how many times its text was sent before it, and how many messages
+    /// came before it.
+    fn point(&self, ix: usize) -> Option<(String, Vec<PathBuf>, usize, usize)> {
         let Some(Item::User {
             text,
             images,
             steer: false,
         }) = self.model.items.get(ix)
         else {
-            return;
+            return None;
         };
-        let (text, images) = (text.clone(), images.clone());
         if !self.can_rewind() {
-            return;
+            return None;
         }
         let users: Vec<&str> = self.model.items[..ix]
             .iter()
@@ -669,6 +741,31 @@ impl TranscriptView {
             })
             .collect();
         let nth = users.iter().filter(|t| **t == text.trim()).count();
+        Some((text.clone(), images.clone(), nth, users.len()))
+    }
+
+    pub(super) fn fork(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let Some((text, images, nth, keep)) = self.point(ix) else {
+            return;
+        };
+        let mut launch = self.launch.clone();
+        launch.rewind = launch.resume.is_some().then(|| hyprspace_proto::Rewind {
+            text: text.clone(),
+            nth,
+            fork: true,
+        });
+        cx.emit(TranscriptEvent::Fork {
+            launch,
+            keep,
+            text,
+            images,
+        });
+    }
+
+    pub(super) fn rewind(&mut self, ix: usize, cx: &mut Context<Self>) {
+        let Some((text, images, nth, keep)) = self.point(ix) else {
+            return;
+        };
         if self.open {
             self.client.send(Command::Close { id: self.id });
             self.open = false;
@@ -677,12 +774,13 @@ impl TranscriptView {
             self.launch.rewind = Some(hyprspace_proto::Rewind {
                 text: text.clone(),
                 nth,
+                fork: false,
             });
         }
         if !self.journal.is_empty() {
             self.client.send(Command::TrimJournal {
                 journal: self.journal.clone(),
-                keep: users.len(),
+                keep,
             });
         }
         self.model.cut(ix);
@@ -852,6 +950,7 @@ impl TranscriptView {
             };
             let _ = this.update(cx, |v, cx| {
                 v.images.extend(paths.into_iter().filter(|p| p.is_file()));
+                v.keep_draft(cx);
                 cx.notify();
             });
         })
@@ -956,6 +1055,9 @@ impl TranscriptView {
     /// After anything that can move the status: tell the root, and keep a one-second tick
     /// going while a run or a subagent is live so their timers count.
     fn changed(&mut self, cx: &mut Context<Self>) {
+        if self.find.is_some() {
+            self.refind(false, cx);
+        }
         let hint = if self.model.running() {
             RUNNING_HINT
         } else {
@@ -1025,6 +1127,7 @@ impl TranscriptView {
     fn drop_paths(&mut self, paths: &ExternalPaths, window: &mut Window, cx: &mut Context<Self>) {
         let (images, text) = attach::split_drop(paths.paths());
         self.images.extend(images);
+        self.keep_draft(cx);
         if !text.is_empty() {
             self.input.update(cx, |i, cx| i.insert(&text, cx));
         }
@@ -1090,6 +1193,17 @@ impl model_menu::Host for TranscriptView {
             Choice::Fast(fast) => self.pick_fast(fast, cx),
         }
     }
+}
+
+actions!(transcript, [FindInThread, PrevPrompt, NextPrompt]);
+
+pub fn bind_keys(cx: &mut gpui::App) {
+    let c = Some("Thread");
+    cx.bind_keys([
+        KeyBinding::new("secondary-f", FindInThread, c),
+        KeyBinding::new("alt-up", PrevPrompt, c),
+        KeyBinding::new("alt-down", NextPrompt, c),
+    ]);
 }
 
 const IDLE_HINT: &str = "Ask for anything";

@@ -117,6 +117,7 @@ impl Find {
             .bg(colors::surface2().opacity(0.94))
             .border_b_1()
             .border_color(colors::border2())
+            .occlude()
             // Shift+Enter goes up. The box binds it to Newline, which a one-line box would turn
             // into another Enter, so take the action before it gets there.
             .capture_action(cx.listener(|v, _: &Newline, _, cx| {

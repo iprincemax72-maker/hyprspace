@@ -132,6 +132,7 @@ impl FolderPicker {
         }
         self.stage = stage;
         self.error = None;
+        self.naming = false;
         self.line = None;
         self.refocus = true;
         match stage {
@@ -181,6 +182,7 @@ impl FolderPicker {
                 Ok(path) => Command::NewProject { request, path },
                 Err(e) => return self.fail(e, cx),
             },
+            Stage::Browse => return self.make_dir(cx),
             Stage::Clone { github } => match remote(github, &text) {
                 Some((url, name)) => Command::Clone {
                     request,

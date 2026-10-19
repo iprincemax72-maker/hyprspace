@@ -53,7 +53,9 @@ pub fn view(
             cx.on_blur(&input, window, |_, _, cx| cx.notify()),
         ];
     }
-    v.follow.step(&v.list, window, cx);
+    if !v.finding() {
+        v.follow.step(&v.list, window, cx);
+    }
     // rows measure taller than estimated once laid out, which only shows after this frame
     cx.on_next_frame(window, |v, _, cx| {
         if v.follow.behind(&v.list) {
@@ -108,6 +110,12 @@ pub fn view(
         .collect();
     let surface: Arc<str> = format!("t{}", v.id.0).into();
     edge_scroll(v, &surface, window);
+    v.aim_find(window);
+    let hunt = v.find.as_ref().map(|f| f.hunt(cx));
+    markdown::find::set(
+        &surface,
+        hunt.as_ref().map(|(q, current)| (q.as_str(), *current)),
+    );
     let jump = v.follow.away(&v.list).then(|| jump(cx));
     let ticks = ticks(v, &prompts, window, cx);
     let rows = list(
@@ -115,8 +123,19 @@ pub fn view(
         cx.processor(|v, ix: usize, _, cx| list_row(v, ix, cx)),
     )
     .size_full();
+    let bar = v.find_bar(cx);
     div()
         .id("transcript")
+        .key_context("Thread")
+        .on_action(cx.listener(|v, _: &super::FindInThread, window, cx| v.open_find(window, cx)))
+        .on_action(cx.listener(|v, _: &super::PrevPrompt, _, cx| {
+            jump_prompt(v, false);
+            cx.notify();
+        }))
+        .on_action(cx.listener(|v, _: &super::NextPrompt, _, cx| {
+            jump_prompt(v, true);
+            cx.notify();
+        }))
         .size_full()
         .flex()
         .flex_col()
@@ -140,7 +159,8 @@ pub fn view(
                 .child(rows)
                 .child(markdown::select::tail(surface))
                 .children(ticks)
-                .children(jump),
+                .children(jump)
+                .children(bar),
         )
         .child(composer(v, window, cx))
         .children(model_menu(v, window, cx))
@@ -242,13 +262,34 @@ fn folder_name(v: &TranscriptView) -> String {
         .unwrap_or_else(|| "this folder".into())
 }
 
+fn retry(v: &TranscriptView, ix: usize, cx: &mut Context<TranscriptView>) -> Option<AnyElement> {
+    (v.retry_at() == Some(ix)).then(|| {
+        div()
+            .flex()
+            .child(
+                widgets::button(("retry", ix), "Try again")
+                    .h(px(24.))
+                    .px(px(9.))
+                    .text_size(px(12.))
+                    .text_color(colors::text1())
+                    .child(icon("rotate-cw", 12., colors::text2()))
+                    .flex_row_reverse()
+                    .on_click(cx.listener(|v, _: &ClickEvent, _, cx| v.retry(cx))),
+            )
+            .into_any_element()
+    })
+}
+
+fn took(secs: u64) -> String {
+    match secs {
+        0..60 => format!("{secs}s"),
+        60..3600 => format!("{}m {}s", secs / 60, secs % 60),
+        _ => format!("{}h {}m", secs / 3600, secs / 60 % 60),
+    }
+}
+
 fn working(v: &TranscriptView) -> AnyElement {
-    let secs = v.model.elapsed().unwrap_or(0);
-    let took = if secs < 60 {
-        format!("{secs}s")
-    } else {
-        format!("{}m {}s", secs / 60, secs % 60)
-    };
+    let took = took(v.model.elapsed().unwrap_or(0));
     let doing = v
         .model
         .running_tool()
@@ -373,6 +414,42 @@ fn quiet(v: &TranscriptView, start: usize, cx: &mut Context<TranscriptView>) -> 
         .gap(px(8.))
         .children(out)
         .into_any_element()
+}
+
+fn jump_prompt(v: &mut TranscriptView, down: bool) {
+    let prompts: Vec<usize> = v
+        .rows
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| matches!(r, Row::Item { user: true, .. }))
+        .map(|(i, _)| i)
+        .collect();
+    let (first, top) = (
+        v.list.logical_scroll_top().item_ix,
+        v.list.viewport_bounds().top(),
+    );
+    let above = |row: usize| {
+        row < first
+            || v.list
+                .bounds_for_item(row)
+                .is_some_and(|b| b.top() < top - px(2.))
+    };
+    let below = |row: usize| {
+        row >= first
+            && v.list
+                .bounds_for_item(row)
+                .is_none_or(|b| b.top() > top + px(2.))
+    };
+    let target = if down {
+        prompts.iter().copied().find(|&r| below(r))
+    } else {
+        prompts.iter().rev().copied().find(|&r| above(r))
+    };
+    match target {
+        Some(row) => v.follow.seek(&v.list, row),
+        None if down => v.follow.down(&v.list),
+        None => {}
+    }
 }
 
 fn lit(v: &TranscriptView, prompts: &[usize]) -> usize {
@@ -680,6 +757,13 @@ fn item(
                     })
                     .when(!*steer && v.can_rewind(), |d| {
                         d.child(
+                            widgets::icon_button(("fork", ix), "git-branch", 24.)
+                                .tooltip(widgets::tip("Fork from here into a new thread"))
+                                .on_click(
+                                    cx.listener(move |v, _: &ClickEvent, _, cx| v.fork(ix, cx)),
+                                ),
+                        )
+                        .child(
                             widgets::icon_button(("rewind", ix), "pencil", 24.)
                                 .tooltip(widgets::tip("Edit from here"))
                                 .on_click(
@@ -800,15 +884,15 @@ fn item(
                         .gap_1()
                         .text_color(colors::text1())
                         .child(message.clone())
-                        .children(hint),
+                        .children(hint)
+                        .children(retry(v, ix, cx)),
                 )
                 .into_any_element()
         }
         Item::Finished { status, ms, error } => {
             let secs = *ms as f32 / 1000.0;
             let line = match status {
-                // skipped in `items`
-                RunStatus::Done => format!("Done in {secs:.1}s"),
+                RunStatus::Done => format!("Worked for {}", took(ms / 1000)),
                 RunStatus::Interrupted => format!("Stopped after {secs:.1}s"),
                 RunStatus::Failed => match error {
                     Some(e) => format!("Failed: {e}"),
@@ -816,6 +900,9 @@ fn item(
                 },
             };
             div()
+                .flex()
+                .items_center()
+                .gap(px(10.))
                 .text_size(px(11.5))
                 .text_color(if *status == RunStatus::Failed {
                     colors::error()
@@ -823,6 +910,7 @@ fn item(
                     colors::text3()
                 })
                 .child(line)
+                .children(retry(v, ix, cx))
                 .into_any_element()
         }
         Item::Note(text) => div()
@@ -1214,6 +1302,7 @@ fn composer(
                 cx.listener(|v, ix: &usize, _, cx| {
                     if *ix < v.images.len() {
                         v.images.remove(*ix);
+                        v.keep_draft(cx);
                     }
                     cx.notify();
                 }),
@@ -1257,7 +1346,11 @@ fn composer(
                         )
                         .child(action),
                 ),
-        );
+        )
+        .when(v.ultra && agent == hyprspace_proto::Agent::Claude, |d| {
+            d.relative()
+                .child(super::ring::ring(14., focused && window.is_window_active()))
+        });
     let foot = div()
         .flex()
         .items_center()
@@ -1366,7 +1459,7 @@ fn tray(v: &TranscriptView, cx: &mut Context<TranscriptView>) -> Option<AnyEleme
                     .child(text),
             )
     };
-    let mut rows: Vec<Div> = Vec::new();
+    let mut rows: Vec<gpui::Stateful<Div>> = Vec::new();
     if let Some(at) = v.resume_at {
         let when = chrono::Local
             .timestamp_millis_opt(at as i64)
@@ -1389,7 +1482,8 @@ fn tray(v: &TranscriptView, cx: &mut Context<TranscriptView>) -> Option<AnyEleme
                 widgets::icon_button("limit-cancel", "x", 24.)
                     .tooltip(widgets::tip("Don't continue"))
                     .on_click(cx.listener(|v, _: &ClickEvent, _, cx| v.cancel_resume(cx))),
-            ),
+            )
+            .id("limit-row"),
         );
     }
     for (ix, p) in v.queue.iter().enumerate() {
@@ -1399,38 +1493,53 @@ fn tray(v: &TranscriptView, cx: &mut Context<TranscriptView>) -> Option<AnyEleme
         } else {
             text
         };
-        rows.push(
-            line(
-                icon("list-checks", 14., colors::text3()).into_any_element(),
-                text,
-            )
-            .child(
-                small(widgets::button(("queue-edit", ix), "Edit"))
-                    .tooltip(widgets::tip(
-                        "Take it out of the queue and back into the box",
-                    ))
-                    .on_click(cx.listener(move |v, _: &ClickEvent, window, cx| {
-                        v.edit_queued(ix, window, cx)
-                    })),
-            )
-            .child(
-                small(widgets::button(
-                    ("queue-steer", ix),
-                    if held { "Send" } else { "Steer" },
+        let shown = SharedString::from(text.clone());
+        let row = line(
+            icon("list-checks", 14., colors::text3()).into_any_element(),
+            text,
+        )
+        .child(
+            small(widgets::button(("queue-edit", ix), "Edit"))
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .tooltip(widgets::tip(
+                    "Take it out of the queue and back into the box",
                 ))
-                .tooltip(widgets::tip(if held {
-                    "Send this now"
-                } else {
-                    "Send this into the run now instead of after it"
-                }))
-                .on_click(cx.listener(move |v, _: &ClickEvent, _, cx| v.steer(ix, cx))),
-            )
-            .child(
-                widgets::icon_button(("queue-drop", ix), "x", 24.)
-                    .tooltip(widgets::tip("Remove from the queue"))
-                    .on_click(cx.listener(move |v, _: &ClickEvent, _, cx| v.unqueue(ix, cx))),
-            ),
-        );
+                .on_click(
+                    cx.listener(move |v, _: &ClickEvent, window, cx| v.edit_queued(ix, window, cx)),
+                ),
+        )
+        .child(
+            small(widgets::button(
+                ("queue-steer", ix),
+                if held { "Send" } else { "Steer" },
+            ))
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .tooltip(widgets::tip(if held {
+                "Send this now"
+            } else {
+                "Send this into the run now instead of after it"
+            }))
+            .on_click(cx.listener(move |v, _: &ClickEvent, _, cx| v.steer(ix, cx))),
+        )
+        .child(
+            widgets::icon_button(("queue-drop", ix), "x", 24.)
+                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                .tooltip(widgets::tip("Remove from the queue"))
+                .on_click(cx.listener(move |v, _: &ClickEvent, _, cx| v.unqueue(ix, cx))),
+        )
+        .id(("queue-row", ix));
+        rows.push(if v.queue.len() > 1 {
+            row.on_drag(QueueDrag { ix, text: shown }, |d, grab, _, cx| {
+                cx.new(|_| QueueGhost {
+                    text: d.text.clone(),
+                    grab,
+                })
+            })
+            .drag_over::<QueueDrag>(|s, _, _, _| s.bg(colors::accent().opacity(0.1)))
+            .on_drop(cx.listener(move |v, d: &QueueDrag, _, cx| v.move_queued(d.ix, ix, cx)))
+        } else {
+            row
+        });
     }
     if rows.is_empty() {
         return None;
@@ -1448,6 +1557,39 @@ fn tray(v: &TranscriptView, cx: &mut Context<TranscriptView>) -> Option<AnyEleme
             )
             .into_any_element(),
     )
+}
+
+struct QueueDrag {
+    ix: usize,
+    text: SharedString,
+}
+
+struct QueueGhost {
+    text: SharedString,
+    grab: gpui::Point<gpui::Pixels>,
+}
+
+impl gpui::Render for QueueGhost {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .pl((self.grab.x - px(16.)).max(px(0.)))
+            .pt((self.grab.y - px(14.)).max(px(0.)))
+            .child(
+                div()
+                    .max_w(px(320.))
+                    .px(px(10.))
+                    .py(px(6.))
+                    .rounded(px(8.))
+                    .border_1()
+                    .border_color(colors::border2())
+                    .bg(colors::surface3())
+                    .shadow(colors::shadow())
+                    .text_size(px(13.))
+                    .text_color(colors::text1())
+                    .truncate()
+                    .child(self.text.clone()),
+            )
+    }
 }
 
 /// How full the context window is, as a ring and a percent the way zeron shows it under its

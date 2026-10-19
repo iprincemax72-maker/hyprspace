@@ -221,6 +221,9 @@ impl Render for Root {
         if let Some(space) = self.work.compose.take() {
             self.compose(Some(space), window, cx);
         }
+        if let Some(thread) = self.work.open.take() {
+            self.open_thread(thread, window, cx);
+        }
         self.show_terminals(cx);
         let main: AnyElement = if !self.loaded {
             div().into_any_element()

@@ -84,6 +84,7 @@ pub struct Work {
     pub(crate) drawers: HashMap<u64, drawer::Drawer>,
     pub(crate) drawer_height: f32,
     pub(crate) compose: Option<u64>,
+    pub(crate) open: Option<u64>,
 }
 
 /// The folder the dock follows, the computer it is on, whether the dock is out, and the file the
@@ -117,6 +118,7 @@ impl Work {
             drawers: HashMap::new(),
             drawer_height: 260.,
             compose: None,
+            open: None,
         }
     }
 }

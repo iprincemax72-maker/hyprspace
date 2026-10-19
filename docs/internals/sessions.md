@@ -63,6 +63,11 @@ how Claude is driven.
   whole. Codex resumes, finds the prompt's turn with `thread/turns/list` and calls `thread/revert`.
   The prompt is found by text, not by an id in the journal, because the phone reads journal
   entries and an id there would change its wire.
+- **A fork is a rewind into a new thread.** The new thread gets a copy of the journal up to the
+  prompt (`Command::CopyJournal`) and a `Rewind` marked `fork`. Claude needs nothing more, since
+  every rewind already forks. Codex's `thread/revert` rewrites the thread it is given, so a fork
+  opens with `thread/fork` and reverts the copy. A Claude fork whose prompt isn't found still
+  passes `--fork-session`, or two threads would write one conversation.
 - **Changes apply in place.** Claude takes a model, 1M window included, as `set_model`, a
   permission as `set_permission_mode`, and effort and fast mode as `apply_flag_settings`. Every
   launch passes `--allow-dangerously-skip-permissions`, or the CLI refuses a later switch to

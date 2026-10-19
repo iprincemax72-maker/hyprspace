@@ -206,6 +206,8 @@ pub struct Thread {
     pub resume_at: Option<u64>,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub draft: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub draft_images: Vec<PathBuf>,
     pub parent: Option<u64>,
     pub pinned: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -239,6 +241,7 @@ impl Default for Thread {
             queue: Vec::new(),
             resume_at: None,
             draft: String::new(),
+            draft_images: Vec::new(),
             parent: None,
             pinned: None,
             worktree: None,

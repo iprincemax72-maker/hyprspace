@@ -155,6 +155,7 @@ impl Harness for Claude {
             .and_then(|(thread, config)| resume::origin(config, thread));
         let cwd = origin.unwrap_or_else(|| launch.cwd.clone());
         let mut keep = None;
+        let mut fork = false;
         if let Some(rewind) = launch.rewind.take() {
             let point = launch
                 .resume
@@ -164,6 +165,13 @@ impl Harness for Claude {
             match point {
                 Some(Some(at)) => keep = Some(at),
                 Some(None) => launch.resume = None,
+                None if rewind.fork => {
+                    fork = true;
+                    (emit)(RunEvent::Error {
+                        message: "That message wasn't found in Claude's saved conversation, so the fork has all of it."
+                            .into(),
+                    })
+                }
                 None => (emit)(RunEvent::Error {
                     message: "That message wasn't found in Claude's saved conversation, so nothing was rewound."
                         .into(),
@@ -173,6 +181,8 @@ impl Harness for Claude {
         let mut args = args(&launch);
         if let Some(at) = keep {
             args.extend(["--resume-session-at".into(), at, "--fork-session".into()]);
+        } else if fork {
+            args.push("--fork-session".into());
         }
         if let Some(path) = self.mcp.as_ref().and_then(mcp_config) {
             args.extend(["--mcp-config".into(), path.to_string_lossy().into_owned()]);

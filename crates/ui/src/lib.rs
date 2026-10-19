@@ -43,4 +43,5 @@ pub fn init(cx: &mut gpui::App) {
     palette::bind_keys(cx);
     folders::bind_keys(cx);
     suggest::bind_keys(cx);
+    transcript::bind_keys(cx);
 }

@@ -138,6 +138,7 @@ mod tests {
                 &Rewind {
                     text: "fix it".into(),
                     nth,
+                    fork: false,
                 },
             )
         };

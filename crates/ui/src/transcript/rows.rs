@@ -44,14 +44,15 @@ pub fn plan(all: &[Item], loading: bool, live: bool) -> Vec<Row> {
             rows.push(Row::Quiet(ix));
             ix = quiet_end(all, ix);
         } else {
-            let done = matches!(
+            let quick = matches!(
                 item,
                 Item::Finished {
                     status: RunStatus::Done,
+                    ms,
                     ..
-                }
+                } if *ms < 10_000
             );
-            if !done {
+            if !quick {
                 let user = matches!(item, Item::User { .. });
                 rows.push(Row::Item { ix, user });
             }
@@ -106,6 +107,22 @@ mod tests {
             ms: 1,
             error: None,
         }
+    }
+
+    #[test]
+    fn a_long_run_keeps_its_finish() {
+        let long = Item::Finished {
+            status: RunStatus::Done,
+            ms: 95_000,
+            error: None,
+        };
+        assert_eq!(
+            plan(&[user(), long], false, false),
+            [
+                Row::Item { ix: 0, user: true },
+                Row::Item { ix: 1, user: false },
+            ]
+        );
     }
 
     #[test]

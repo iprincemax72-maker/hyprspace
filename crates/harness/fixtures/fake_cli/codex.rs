@@ -84,6 +84,10 @@ pub fn run() {
             ignore_everything();
         }
         Some("thread/resume") => params["threadId"].as_str().unwrap_or_default().to_string(),
+        Some("thread/fork") => format!(
+            "fork-of-{}",
+            params["threadId"].as_str().unwrap_or_default()
+        ),
         _ => std::process::exit(2),
     };
     let model = params["model"].as_str().unwrap_or("gpt-fake");
@@ -94,6 +98,10 @@ pub fn run() {
     );
     let mut fake = Fake { thread, turns: 0 };
     while let Some(msg) = read() {
+        if msg["method"] == "thread/turns/list" {
+            reply(&msg["id"], json!({ "data": [], "nextCursor": null }));
+            continue;
+        }
         if msg["method"] != "turn/start" {
             continue;
         }

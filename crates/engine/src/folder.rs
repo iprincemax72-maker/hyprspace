@@ -241,6 +241,14 @@ fn diff(cwd: &Path, path: &str) -> Result<String, String> {
 
 /// One level of a folder: folders first, then files, each by name ignoring case. `.git` is left
 /// out; nobody browses it from a file tree.
+pub(crate) fn make_dir(path: &Path) -> Result<Vec<DirEntry>, String> {
+    std::fs::create_dir(path).map_err(|e| match e.kind() {
+        std::io::ErrorKind::AlreadyExists => "Something here already has that name.".to_string(),
+        _ => e.to_string(),
+    })?;
+    list_dir(path)
+}
+
 pub(crate) fn list_dir(path: &Path) -> Result<Vec<DirEntry>, String> {
     let rd = std::fs::read_dir(path).map_err(|e| e.to_string())?;
     let mut out: Vec<(String, DirEntry)> = rd
@@ -298,6 +306,18 @@ mod tests {
 
     fn run1(cmd: FolderCommand) -> Vec<FolderEvent> {
         run(cmd, &Mutex::new(()))
+    }
+
+    #[test]
+    fn makes_a_folder_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let new = dir.path().join("fresh");
+        assert_eq!(make_dir(&new), Ok(Vec::new()));
+        assert!(new.is_dir());
+        assert_eq!(
+            make_dir(&new),
+            Err("Something here already has that name.".to_string())
+        );
     }
 
     #[test]

@@ -85,9 +85,14 @@ jobs:
       - name: NSIS
         shell: pwsh
         run: |
-          if (-not (Get-Command makensis -ErrorAction SilentlyContinue) -and -not (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe")) {
-            choco install nsis -y --no-progress
+          function Has-Nsis { (Get-Command makensis -ErrorAction SilentlyContinue) -or (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe") }
+          if (-not (Has-Nsis)) { choco install nsis -y --no-progress }
+          if (-not (Has-Nsis)) {
+            # Chocolatey's feed 503s at times and choco still exits 0
+            Invoke-WebRequest https://downloads.sourceforge.net/project/nsis/NSIS%203/3.11/nsis-3.11-setup.exe -OutFile nsis-setup.exe -UserAgent curl
+            Start-Process .\nsis-setup.exe -ArgumentList '/S' -Wait
           }
+          if (-not (Has-Nsis)) { throw "NSIS didn't install from Chocolatey or SourceForge." }
       - name: Build the app and its installer
         shell: pwsh
         run: ./scripts/package-windows.ps1

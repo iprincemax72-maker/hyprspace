@@ -88,6 +88,12 @@ pub struct TranscriptView {
     remeasure: bool,
     rail: std::cell::RefCell<Vec<crate::slide::Glide>>,
     hover_tick: std::cell::Cell<Option<usize>>,
+    rail_near: std::cell::Cell<bool>,
+    rail_fade: std::cell::Cell<(f32, Option<Instant>)>,
+    rail_stir: (gpui::Pixels, Option<Instant>),
+    rail_until: Option<Instant>,
+    rail_timer: Option<Task<()>>,
+    requeue_at: Option<usize>,
     catalog: Option<AgentCatalog>,
     menu: Option<ModelMenu>,
     want_menu: Option<bool>,
@@ -205,6 +211,12 @@ impl TranscriptView {
             remeasure: false,
             rail: Default::default(),
             hover_tick: Default::default(),
+            rail_near: Default::default(),
+            rail_fade: Default::default(),
+            rail_stir: Default::default(),
+            rail_until: None,
+            rail_timer: None,
+            requeue_at: None,
             catalog: None,
             menu: None,
             want_menu: None,
@@ -409,10 +421,12 @@ impl TranscriptView {
     }
 
     fn offer(&mut self, prompt: Prompt, cx: &mut Context<Self>) {
+        let at = self.requeue_at.take();
         if self.loading {
             self.queued = Some(prompt);
         } else if self.model.running() {
-            self.queue.push(prompt);
+            let at = at.map_or(self.queue.len(), |at| at.min(self.queue.len()));
+            self.queue.insert(at, prompt);
             self.queue_changed(cx);
         } else {
             self.send(prompt, cx);
@@ -433,6 +447,7 @@ impl TranscriptView {
         }
         let prompt = self.queue.remove(ix);
         self.queue_changed(cx);
+        self.requeue_at = Some(ix);
         let draft = self.input.read(cx).text().trim().to_string();
         let text = match draft.is_empty() {
             true => prompt.text,
@@ -1113,7 +1128,10 @@ impl TranscriptView {
             .zip(&rows)
             .take_while(|(a, b)| a == b)
             .count();
-        if same < self.rows.len() || rows.len() > same {
+        if same == 0 && !rows.is_empty() {
+            // a row not drawn yet counts as no height, so a jump through it lands short
+            self.list.reset_with_uniform_height(rows.len(), px(120.));
+        } else if same < self.rows.len() || rows.len() > same {
             self.list.splice(same..self.rows.len(), rows.len() - same);
         }
         if std::mem::take(&mut self.remeasure) && same > 0 {

@@ -74,6 +74,11 @@ pub(super) fn page() -> AnyElement {
                     "In a structured thread.",
                     &[chord(&[ALT, "\u{2191}"]), chord(&[ALT, "\u{2193}"])],
                 ),
+                line(
+                    "Edit the last queued message",
+                    "With the message box empty. It goes back in its place.",
+                    &[chord(&["\u{2191}"])],
+                ),
                 line("Zoom in", "", &[chord(&[MOD, "+"])]),
                 line("Zoom out", "", &[chord(&[MOD, "-"])]),
                 line("Actual size", "", &[chord(&[MOD, "0"])]),

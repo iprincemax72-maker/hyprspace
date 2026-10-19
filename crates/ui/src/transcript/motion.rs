@@ -45,12 +45,20 @@ fn set(list: &ListState, to: Pixels) {
     list.scroll_by(to - y(list));
 }
 
-fn target(list: &ListState, aim: &Aim) -> Option<Pixels> {
+fn target(list: &ListState, aim: &Aim) -> Pixels {
     match aim {
-        Aim::Bottom => Some(max(list)),
-        Aim::Item(ix) => list
-            .bounds_for_item(*ix)
-            .map(|b| (y(list) + b.top() - list.viewport_bounds().top()).clamp(px(0.), max(list))),
+        Aim::Bottom => max(list),
+        Aim::Item(ix) => {
+            // bounds_for_item only knows rows on screen, so read the row's offset by scrolling to it
+            let at = list.logical_scroll_top();
+            list.scroll_to(ListOffset {
+                item_ix: *ix,
+                offset_in_item: px(0.),
+            });
+            let to = y(list);
+            list.scroll_to(at);
+            to.clamp(px(0.), max(list))
+        }
     }
 }
 
@@ -78,8 +86,7 @@ impl Follow {
     }
 
     fn go(&mut self, list: &ListState, aim: Aim) {
-        let to = target(list, &aim);
-        let (true, Some(to)) = (animations(), to) else {
+        if !animations() {
             self.trip = None;
             match aim {
                 Aim::Bottom => self.snap(list),
@@ -89,8 +96,8 @@ impl Follow {
                 }),
             }
             return;
-        };
-        let from = y(list);
+        }
+        let (from, to) = (y(list), target(list, &aim));
         let screen = list.viewport_bounds().size.height.max(px(1.));
         let length =
             Duration::from_millis((260. + 80. * ((to - from).abs() / screen).min(2.)) as u64);
@@ -117,10 +124,7 @@ impl Follow {
             .min(0.05);
         self.last = Some(now);
         if let Some(trip) = &self.trip {
-            let Some(to) = target(list, &trip.aim) else {
-                self.trip = None;
-                return;
-            };
+            let to = target(list, &trip.aim);
             let t = (now - trip.start).as_secs_f32() / trip.length.as_secs_f32();
             if t >= 1. {
                 if matches!(trip.aim, Aim::Bottom) {

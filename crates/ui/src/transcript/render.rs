@@ -151,7 +151,9 @@ pub fn view(
                 .flex_1()
                 .min_h_0()
                 .on_scroll_wheel(cx.listener(|v, e: &ScrollWheelEvent, _, cx| {
-                    v.follow.wheel(e.delta.pixel_delta(px(20.)).y > px(0.));
+                    let dy = e.delta.pixel_delta(px(20.)).y;
+                    v.follow.wheel(dy > px(0.));
+                    stir_rail(v, dy, cx);
                     cx.notify();
                 }))
                 // before any text, so selection knows this transcript's elements
@@ -496,14 +498,18 @@ fn ticks(
             cx.notify();
         }
     });
-    let hover = v.hover_tick.get().filter(|&h| h < prompts.len());
+    let height = f32::from(v.list.viewport_bounds().size.height) / crate::zoom::zoom();
+    let (shown, pitch) = fit_ticks(prompts.len(), height - 48.);
+    let last = prompts.len() - 1;
+    let prompt_of = |n: usize| (n * last + (shown - 1) / 2) / (shown - 1);
+    let lit = (lit * (shown - 1) + last / 2) / last;
+    let hover = v.hover_tick.get().filter(|&h| h < shown);
     let previews = previews(&v.model.items);
     let mut glides = v.rail.borrow_mut();
-    glides.resize_with(prompts.len(), Glide::default);
-    let marks: Vec<AnyElement> = prompts
-        .iter()
-        .enumerate()
-        .map(|(n, &row)| {
+    glides.resize_with(shown, Glide::default);
+    let marks: Vec<AnyElement> = (0..shown)
+        .map(|n| {
+            let row = prompts[prompt_of(n)];
             let near = hover.map(|h| h.abs_diff(n));
             let width = match near {
                 Some(0) => 18.,
@@ -525,7 +531,7 @@ fn ticks(
                 .flex()
                 .items_center()
                 .w(px(24.))
-                .h(px(9.))
+                .h(px(pitch))
                 .cursor_pointer()
                 .on_hover(cx.listener(move |v, on: &bool, _, cx| {
                     if *on {
@@ -544,11 +550,14 @@ fn ticks(
         })
         .collect();
     let card = hover.map(|n| {
-        let (title, reply) = previews.get(n).cloned().unwrap_or_default();
+        let (title, reply) = previews.get(prompt_of(n)).cloned().unwrap_or_default();
+        let column = shown as f32 * pitch;
+        let start = (height - column) / 2.;
+        let top = (start + n as f32 * pitch - 18.).min(height - 120.).max(8.) - start;
         div()
             .absolute()
             .left(px(30.))
-            .top(px(n as f32 * 9. - 18.))
+            .top(px(top))
             .w(px(320.))
             .flex()
             .flex_col()
@@ -579,29 +588,89 @@ fn ticks(
                 )
             })
             .with_animation(
-                ("tick-card", n),
+                "tick-card",
                 Animation::new(Duration::from_millis(120)).with_easing(gpui::ease_in_out),
                 |d, t| d.opacity(t),
             )
     });
+    let seen = pitch >= 9.
+        || v.rail_near.get()
+        || hover.is_some()
+        || v.rail_until.is_some_and(|u| Instant::now() < u);
+    let shown = fade_rail(v, seen, window, cx);
+    let column = div()
+        .relative()
+        .flex()
+        .flex_col()
+        .children(marks)
+        .children(card);
     Some(
         div()
+            .id("rail")
             .absolute()
-            .left(px(10.))
+            .left_0()
             .top_0()
             .bottom_0()
+            .w(px(56.))
+            .pl(px(10.))
             .flex()
             .items_center()
-            .child(
-                div()
-                    .relative()
-                    .flex()
-                    .flex_col()
-                    .children(marks)
-                    .children(card),
-            )
+            .on_hover(cx.listener(|v, on: &bool, _, cx| {
+                v.rail_near.set(*on);
+                cx.notify();
+            }))
+            .child(column.opacity(shown * shown * (3. - 2. * shown)))
             .into_any_element(),
     )
+}
+
+fn stir_rail(v: &mut TranscriptView, dy: gpui::Pixels, cx: &mut Context<TranscriptView>) {
+    let now = Instant::now();
+    let (sum, last) = v.rail_stir;
+    let sum = match last {
+        Some(l) if now - l < Duration::from_millis(400) => sum + dy.abs(),
+        _ => dy.abs(),
+    };
+    v.rail_stir = (sum, Some(now));
+    if sum < v.list.viewport_bounds().size.height / 2. {
+        return;
+    }
+    let linger = Duration::from_millis(900);
+    v.rail_until = Some(now + linger);
+    v.rail_timer = Some(cx.spawn(async move |this, cx| {
+        cx.background_executor().timer(linger).await;
+        this.update(cx, |_, cx| cx.notify()).ok();
+    }));
+}
+
+fn fade_rail(
+    v: &TranscriptView,
+    seen: bool,
+    window: &mut Window,
+    cx: &mut Context<TranscriptView>,
+) -> f32 {
+    let goal = if seen { 1. } else { 0. };
+    let (was, last) = v.rail_fade.get();
+    let now = Instant::now();
+    if !slide::animations() || was == goal {
+        v.rail_fade.set((goal, None));
+        return goal;
+    }
+    let dt = last.map_or(0.016, |l| (now - l).as_secs_f32().min(0.05));
+    let step = dt / if seen { 0.18 } else { 0.3 };
+    let shown = if seen {
+        (was + step).min(goal)
+    } else {
+        (was - step).max(goal)
+    };
+    v.rail_fade.set((shown, Some(now)));
+    crate::pace::next(window, cx);
+    shown
+}
+
+fn fit_ticks(prompts: usize, room: f32) -> (usize, f32) {
+    let shown = prompts.min((room / 4.).floor().max(2.) as usize);
+    (shown, (room / shown as f32).clamp(4., 9.))
 }
 
 fn previews(items: &[Item]) -> Vec<(String, String)> {
@@ -1398,6 +1467,12 @@ fn composer(
         .relative()
         .w_full()
         .when(v.suggest.open.is_some(), |d| d.key_context("Suggest"))
+        .capture_action(cx.listener(|v, _: &crate::input::Up, window, cx| {
+            if !v.queue.is_empty() && v.input.read(cx).text().is_empty() {
+                v.edit_queued(v.queue.len() - 1, window, cx);
+                cx.stop_propagation();
+            }
+        }))
         .on_action(cx.listener(TranscriptView::suggest_prev))
         .on_action(cx.listener(TranscriptView::suggest_next))
         .on_action(cx.listener(TranscriptView::suggest_accept))

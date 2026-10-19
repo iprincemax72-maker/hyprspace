@@ -9,7 +9,9 @@ use std::time::Duration;
 use common::{count, events, fake, finished, text};
 use hyprspace_harness::{Claude, Harness, Session};
 use hyprspace_proto::run::{ChangeKind, FileChange};
-use hyprspace_proto::{Agent, Answer, Launch, Permission, Prompt, RunEvent, RunStatus, Tool};
+use hyprspace_proto::{
+    Agent, Answer, Launch, Permission, Prompt, RunEvent, RunStatus, Task, TaskKind, Tool,
+};
 use serde_json::json;
 
 fn claude() -> Claude {
@@ -564,4 +566,53 @@ async fn a_background_subagent_outlives_the_run() {
     assert_eq!(finished(&later).0, RunStatus::Done);
     session.send(Prompt::text("after"));
     assert_eq!(text(&events.run().await), "echo: after");
+}
+
+#[tokio::test]
+async fn background_tasks_show_until_stopped() {
+    let dir = tempfile::tempdir().unwrap();
+    let (session, mut events) = start(&claude(), dir.path());
+    session.send(Prompt::text("bgtask"));
+    let run = events.run().await;
+    let lists: Vec<_> = run
+        .iter()
+        .filter_map(|e| match e {
+            RunEvent::Background { tasks } => Some(tasks.clone()),
+            _ => None,
+        })
+        .collect();
+    // the CLI's ambient watcher is not activity
+    assert_eq!(
+        lists,
+        [vec![Task {
+            id: "b1".into(),
+            kind: TaskKind::Command,
+            label: "Dev server".into(),
+            tool: Some("tb".into()),
+        }]]
+    );
+    session.stop_task("b1".into());
+    let after = events
+        .until(|e| matches!(e, RunEvent::Background { .. }))
+        .await;
+    assert_eq!(after.last(), Some(&RunEvent::Background { tasks: vec![] }));
+}
+
+#[tokio::test]
+async fn a_background_task_s_output_is_read_on_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let (session, mut events) = start(&claude(), dir.path());
+    session.send(Prompt::text("bgwedge"));
+    events
+        .until(|e| matches!(e, RunEvent::Background { .. }))
+        .await;
+    session.task_output("b1".into());
+    let got = events
+        .until(|e| matches!(e, RunEvent::TaskOutput { .. }))
+        .await;
+    let Some(RunEvent::TaskOutput { task, output, .. }) = got.last() else {
+        unreachable!()
+    };
+    assert_eq!(task, "b1");
+    assert!(output.contains("VITE") && output.contains("GET /"));
 }

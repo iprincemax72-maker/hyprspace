@@ -60,6 +60,8 @@ pub struct Session {
 pub(crate) enum Input {
     Send(Prompt),
     Interrupt,
+    StopTask(String),
+    TaskOutput(String),
     Answer {
         request: String,
         answer: Answer,
@@ -82,6 +84,16 @@ impl Session {
     /// stays open. Does nothing between runs.
     pub fn interrupt(&self) {
         let _ = self.tx.send(Input::Interrupt);
+    }
+
+    /// Stops one task of `RunEvent::Background`. An unknown task is ignored.
+    pub fn stop_task(&self, task: String) {
+        let _ = self.tx.send(Input::StopTask(task));
+    }
+
+    /// Asks for the end of a background task's output, which comes as `RunEvent::TaskOutput`.
+    pub fn task_output(&self, task: String) {
+        let _ = self.tx.send(Input::TaskOutput(task));
     }
 
     /// Answers the `RunEvent::Approval` named `request`. An unknown request is ignored.

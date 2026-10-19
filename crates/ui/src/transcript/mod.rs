@@ -4,6 +4,7 @@
 
 mod approval;
 mod ask;
+mod background;
 mod branch;
 mod changes;
 mod commands;
@@ -94,6 +95,9 @@ pub struct TranscriptView {
     rail_until: Option<Instant>,
     rail_timer: Option<Task<()>>,
     requeue_at: Option<usize>,
+    task_open: Option<String>,
+    task_log: Option<String>,
+    task_poll: Option<Task<()>>,
     catalog: Option<AgentCatalog>,
     menu: Option<ModelMenu>,
     want_menu: Option<bool>,
@@ -217,6 +221,9 @@ impl TranscriptView {
             rail_until: None,
             rail_timer: None,
             requeue_at: None,
+            task_open: None,
+            task_log: None,
+            task_poll: None,
             catalog: None,
             menu: None,
             want_menu: None,
@@ -284,6 +291,21 @@ impl TranscriptView {
             return Some("Compacting".into());
         }
         self.model.running_tool().map(tool::label)
+    }
+
+    pub fn background_line(&self) -> Option<String> {
+        let tasks: Vec<_> = self
+            .model
+            .background
+            .iter()
+            .filter(|t| t.kind != hyprspace_proto::TaskKind::Subagent)
+            .collect();
+        match tasks.as_slice() {
+            [] => None,
+            [t] if !t.label.trim().is_empty() => Some(format!("In the background: {}", t.label)),
+            [_] => Some("1 task in the background".into()),
+            all => Some(format!("{} tasks in the background", all.len())),
+        }
     }
 
     /// The subagents still running: what each was asked, and seconds since it started.
@@ -519,6 +541,44 @@ impl TranscriptView {
             self.stopping = true;
             cx.notify();
         }
+    }
+
+    pub(super) fn toggle_task(&mut self, task: String, cx: &mut Context<Self>) {
+        self.task_log = None;
+        if self.task_open.as_ref() == Some(&task) {
+            self.task_open = None;
+            self.task_poll = None;
+            cx.notify();
+            return;
+        }
+        self.task_open = Some(task);
+        self.task_poll = Some(cx.spawn(async move |this, cx| {
+            loop {
+                let live = this
+                    .update(cx, |v, _| {
+                        let Some(task) = v
+                            .task_open
+                            .clone()
+                            .filter(|t| v.model.background.iter().any(|b| &b.id == t))
+                        else {
+                            return false;
+                        };
+                        v.client.send(Command::TaskOutput { id: v.id, task });
+                        true
+                    })
+                    .unwrap_or(false);
+                if !live {
+                    break;
+                }
+                cx.background_executor().timer(Duration::from_secs(1)).await;
+            }
+        }));
+        cx.notify();
+    }
+
+    pub(super) fn stop_task(&mut self, task: String, cx: &mut Context<Self>) {
+        self.client.send(Command::StopTask { id: self.id, task });
+        cx.notify();
     }
 
     fn answer(&mut self, request: String, answer: Answer, cx: &mut Context<Self>) {
@@ -830,6 +890,13 @@ impl TranscriptView {
     }
 
     pub fn apply(&mut self, event: RunEvent, cx: &mut Context<Self>) {
+        if let RunEvent::TaskOutput { task, output, .. } = event {
+            if self.task_open.as_ref() == Some(&task) {
+                self.task_log = Some(output);
+                cx.notify();
+            }
+            return;
+        }
         match &event {
             RunEvent::Failed { .. } if std::mem::take(&mut self.probing) => {
                 cx.emit(TranscriptEvent::SwitchFailed)

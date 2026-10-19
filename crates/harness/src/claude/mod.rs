@@ -23,7 +23,9 @@ use std::io;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use hyprspace_proto::{Agent, Launch, Permission, Prompt, RunEvent, RunStatus, Tool};
+use hyprspace_proto::{
+    Agent, Launch, Permission, Prompt, RunEvent, RunStatus, Task, TaskKind, Tool,
+};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin};
@@ -206,6 +208,7 @@ impl Harness for Claude {
             open_tools: HashSet::new(),
             agents: HashMap::new(),
             nested: HashMap::new(),
+            task_tools: HashMap::new(),
             context: 0,
             window: None,
         };
@@ -264,6 +267,8 @@ struct Actor {
     agents: HashMap<String, bool>,
     /// Agent calls a subagent made, to the main thread's call they report under.
     nested: HashMap<String, String>,
+    /// Background tasks, to the tool call that started each.
+    task_tools: HashMap<String, String>,
     /// Tokens the main thread's latest message saw and wrote.
     context: u64,
     /// The main model's context window, from the latest `result`.
@@ -344,6 +349,16 @@ impl Actor {
                 run.interrupted = true;
                 run.kill_at = Some(Instant::now() + self.patience);
                 self.write(wire::interrupt_line("hs-interrupt")).await;
+            }
+            Input::TaskOutput(task) => {
+                let request = json!({ "subtype": "get_task_output", "task_id": task });
+                self.write(wire::control_line(&format!("{OUTPUT}{task}"), request))
+                    .await;
+            }
+            Input::StopTask(task) => {
+                let request = json!({ "subtype": "stop_task", "task_id": task });
+                self.write(wire::control_line(&format!("{STOP}{task}"), request))
+                    .await;
             }
             Input::Configure(launch) => {
                 if launch.model != self.model {
@@ -493,6 +508,29 @@ impl Actor {
                 (self.emit)(RunEvent::Woke);
             }
             "system" if v["subtype"] == "task_notification" => self.notified(&v),
+            "system" if v["subtype"] == "task_started" => {
+                if let Some(tool) = v["tool_use_id"].as_str() {
+                    self.task_tools
+                        .insert(text(&v["task_id"]), tool.to_string());
+                }
+            }
+            "system" if v["subtype"] == "background_tasks_changed" => {
+                let mut tasks = background(&v["tasks"]);
+                for t in &mut tasks {
+                    t.tool = self.task_tools.get(&t.id).cloned();
+                }
+                (self.emit)(RunEvent::Background { tasks })
+            }
+            "control_response" if output_of(&v).is_some() => {
+                if v["response"]["subtype"] == "success" {
+                    let reply = &v["response"]["response"];
+                    (self.emit)(RunEvent::TaskOutput {
+                        task: output_of(&v).unwrap_or_default().to_string(),
+                        output: text(&reply["output"]),
+                        truncated: reply["truncated"] == true,
+                    })
+                }
+            }
             "system" if v["subtype"] == "status" && v["status"] == "compacting" => {
                 (self.emit)(RunEvent::Compacting)
             }
@@ -587,9 +625,13 @@ impl Actor {
             }
             "control_response" if v["response"]["subtype"] == "error" => {
                 let why = v["response"]["error"].as_str().unwrap_or("no reason given");
-                (self.emit)(RunEvent::Error {
-                    message: format!("Claude refused the change: {why}"),
-                });
+                let id = v["response"]["request_id"].as_str().unwrap_or_default();
+                let message = if id.starts_with(STOP) {
+                    format!("Claude couldn't stop that task: {why}")
+                } else {
+                    format!("Claude refused the change: {why}")
+                };
+                (self.emit)(RunEvent::Error { message });
             }
             "control_cancel_request" => {
                 self.approvals
@@ -787,6 +829,36 @@ async fn sleep_until(at: Option<Instant>) {
 
 fn text(v: &Value) -> String {
     v.as_str().unwrap_or_default().to_string()
+}
+
+const STOP: &str = "hs-stop-";
+const OUTPUT: &str = "hs-output-";
+
+/// The task a `get_task_output` reply answers. A refused one, for a task that ended, is dropped.
+fn output_of(v: &Value) -> Option<&str> {
+    v["response"]["request_id"].as_str()?.strip_prefix(OUTPUT)
+}
+
+fn background(tasks: &Value) -> Vec<Task> {
+    tasks
+        .as_array()
+        .map(|a| a.as_slice())
+        .unwrap_or_default()
+        .iter()
+        // the CLI's own watchers, which it says not to show as activity
+        .filter(|t| t["ambient"] != true)
+        .map(|t| Task {
+            id: text(&t["task_id"]),
+            kind: match t["task_type"].as_str().unwrap_or_default() {
+                "local_bash" => TaskKind::Command,
+                "local_agent" | "remote_agent" => TaskKind::Subagent,
+                k if k.starts_with("monitor") => TaskKind::Monitor,
+                _ => TaskKind::Other,
+            },
+            label: text(&t["description"]),
+            tool: None,
+        })
+        .collect()
 }
 
 fn blocks(v: &Value) -> &[Value] {

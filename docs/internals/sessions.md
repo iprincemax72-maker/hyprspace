@@ -79,6 +79,12 @@ how Claude is driven.
   `SubagentTool`, `SubagentToolDone` and `SubagentText` keyed by the Agent call, never folded into
   the main reply. A background subagent can finish after the run; the CLI then takes a turn of its
   own, reported as `Woke` followed by a normal run.
+- **Background tasks are a live list.** Claude's `background_tasks_changed` carries every task
+  still running, so `RunEvent::Background` replaces the list each time, and the CLI's `ambient`
+  watchers are left out. An open task asks the CLI for the end of its output (`get_task_output`)
+  once a second, and only while it's open. None of it is journaled: the tasks die with the CLI,
+  so a phone or another computer never sees them. Codex has no such list yet (`thread/backgroundTerminals/list` is a
+  request, not an event).
 - **Edits carry unified diffs.** Codex sends real ones. Claude sends only the old and new text,
   so the harness reads the file and finds the old text, or the new text when the CLI has already
   made the edit, for line numbers and 3 lines of context. A text it can't find, and every

@@ -387,6 +387,7 @@ impl Actor {
                     drop(self.rpc.request("turn/interrupt", params));
                 }
             }
+            Input::StopTask(_) | Input::TaskOutput(_) => {}
             Input::Configure(launch) => {
                 self.launch.model = launch.model;
                 self.launch.effort = launch.effort;

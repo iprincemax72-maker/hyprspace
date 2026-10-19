@@ -176,6 +176,17 @@ pub enum RunEvent {
         window: u64,
     },
     Compacting,
+    /// Every task the agent left running in the background, whole each time it changes. Not
+    /// journaled: the tasks end with the CLI.
+    Background {
+        tasks: Vec<Task>,
+    },
+    /// The end of a background task's output, answering `Command::TaskOutput`. Not journaled.
+    TaskOutput {
+        task: String,
+        output: String,
+        truncated: bool,
+    },
     Compacted {
         before: Option<u64>,
         after: Option<u64>,
@@ -232,6 +243,26 @@ pub enum Answer {
     /// approval that came with `always`.
     AllowAlways,
     Deny,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Task {
+    pub id: String,
+    pub kind: TaskKind,
+    pub label: String,
+    /// The tool call that started it, when the CLI said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TaskKind {
+    Command,
+    Monitor,
+    Subagent,
+    Other,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

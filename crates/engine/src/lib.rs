@@ -239,7 +239,13 @@ async fn serve(
                 let record = journal.clone();
                 let say: Say = Arc::new(move |event| {
                     if let Some(j) = record.as_ref().filter(|_| {
-                        !matches!(event, RunEvent::Commands { .. } | RunEvent::Compacting)
+                        !matches!(
+                            event,
+                            RunEvent::Commands { .. }
+                                | RunEvent::Compacting
+                                | RunEvent::Background { .. }
+                                | RunEvent::TaskOutput { .. }
+                        )
                     }) {
                         j.record(Entry::Run {
                             event: event.clone(),
@@ -339,6 +345,16 @@ async fn serve(
             Command::Interrupt { id } => {
                 if let Some(live) = structured.get(&id) {
                     let _ = live.queue.unbounded_send(Ask::Interrupt);
+                }
+            }
+            Command::StopTask { id, task } => {
+                if let Some(live) = structured.get(&id) {
+                    live.session.stop_task(task);
+                }
+            }
+            Command::TaskOutput { id, task } => {
+                if let Some(live) = structured.get(&id) {
+                    live.session.task_output(task);
                 }
             }
             Command::Configure { id, launch } => {

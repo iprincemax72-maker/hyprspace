@@ -44,6 +44,16 @@ pub enum Command {
     Interrupt {
         id: SessionId,
     },
+    /// Stop one of the tasks in `RunEvent::Background`.
+    StopTask {
+        id: SessionId,
+        task: String,
+    },
+    /// Read the end of a background task's output, answered with `RunEvent::TaskOutput`.
+    TaskOutput {
+        id: SessionId,
+        task: String,
+    },
     /// Answer a `RunEvent::Approval`. `answers` replies to the questions an agent asked, by
     /// question text.
     Approve {
@@ -318,6 +328,14 @@ mod tests {
                 },
             },
             Command::Interrupt { id: SessionId(1) },
+            Command::StopTask {
+                id: SessionId(1),
+                task: "b1".into(),
+            },
+            Command::TaskOutput {
+                id: SessionId(1),
+                task: "b1".into(),
+            },
             Command::Approve {
                 id: SessionId(1),
                 request: "r1".into(),
@@ -430,6 +448,25 @@ mod tests {
             Event::Run {
                 id: SessionId(1),
                 event: RunEvent::Text { text: "hi".into() },
+            },
+            Event::Run {
+                id: SessionId(1),
+                event: RunEvent::Background {
+                    tasks: vec![crate::Task {
+                        id: "b1".into(),
+                        kind: crate::TaskKind::Command,
+                        label: "Dev server".into(),
+                        tool: Some("tb".into()),
+                    }],
+                },
+            },
+            Event::Run {
+                id: SessionId(1),
+                event: RunEvent::TaskOutput {
+                    task: "b1".into(),
+                    output: "ready".into(),
+                    truncated: false,
+                },
             },
             Event::Run {
                 id: SessionId(1),

@@ -97,6 +97,10 @@ pub fn run(args: &[String]) {
             done(&reply);
         } else if text.contains("hello") {
             hello();
+        } else if text.contains("bgwedge") {
+            bgwedge();
+        } else if text.contains("bgtask") {
+            bgtask();
         } else if text.contains("background") {
             background();
         } else if text.contains("subagent") {
@@ -199,6 +203,93 @@ pub fn run(args: &[String]) {
             done(&reply);
         }
     }
+}
+
+// A background command that outlives the run, next to a watcher the CLI marks ambient, until
+// the harness stops the command.
+// A run that never ends beside a background dev server whose log grows each time it's read.
+fn bgwedge() {
+    let call = format!("tw{}", std::process::id());
+    emit(json!({
+        "type": "assistant", "parent_tool_use_id": null,
+        "message": { "content": [{ "type": "tool_use", "id": call, "name": "Bash",
+            "input": { "command": "npm run dev", "run_in_background": true } }] },
+    }));
+    emit(
+        json!({ "type": "system", "subtype": "task_started", "task_id": "b1",
+        "tool_use_id": call, "description": "Dev server", "task_type": "local_bash" }),
+    );
+    emit(
+        json!({ "type": "system", "subtype": "background_tasks_changed", "tasks": [
+        { "task_id": "b1", "task_type": "local_bash", "description": "Dev server" },
+    ] }),
+    );
+    emit(json!({
+        "type": "user", "parent_tool_use_id": null,
+        "message": { "content": [{ "type": "tool_result", "tool_use_id": call,
+            "content": "Command running in background with ID: b1", "is_error": false }] },
+    }));
+    say("working");
+    let mut reads = 0;
+    while let Some(msg) = read() {
+        let req = &msg["request"];
+        let id = &msg["request_id"];
+        if req["subtype"] == "get_task_output" {
+            reads += 1;
+            let mut log = String::from(
+                "> app@1.0.0 dev\n> vite\n\n  \u{1b}[32mVITE\u{1b}[0m ready in 312 ms\n\n  \u{1b}[1m->\u{1b}[0m Local: http://localhost:5173/\n",
+            );
+            for n in 1..=reads {
+                log.push_str(&format!("  GET /  200 in {}ms\n", 10 + n));
+            }
+            emit(
+                json!({ "type": "control_response", "response": { "subtype": "success",
+                "request_id": id, "response": { "output": log, "total_bytes": log.len(),
+                "truncated": false } } }),
+            );
+        } else if req["subtype"] == "stop_task" {
+            emit(json!({ "type": "control_response",
+                "response": { "subtype": "success", "request_id": id } }));
+            emit(json!({ "type": "system", "subtype": "background_tasks_changed", "tasks": [] }));
+        }
+    }
+}
+
+fn bgtask() {
+    let watcher = json!({ "task_id": "w1", "task_type": "local_bash", "description": "watch",
+        "ambient": true });
+    emit(json!({
+        "type": "assistant", "parent_tool_use_id": null,
+        "message": { "content": [{ "type": "tool_use", "id": "tb", "name": "Bash",
+            "input": { "command": "npm run dev", "run_in_background": true } }] },
+    }));
+    emit(
+        json!({ "type": "system", "subtype": "task_started", "task_id": "b1",
+        "tool_use_id": "tb", "description": "Dev server", "task_type": "local_bash" }),
+    );
+    emit(
+        json!({ "type": "system", "subtype": "background_tasks_changed", "tasks": [
+        { "task_id": "b1", "task_type": "local_bash", "description": "Dev server" },
+        watcher.clone(),
+    ] }),
+    );
+    emit(json!({
+        "type": "user", "parent_tool_use_id": null,
+        "message": { "content": [{ "type": "tool_result", "tool_use_id": "tb",
+            "content": "Command running in background with ID: b1", "is_error": false }] },
+    }));
+    say("started");
+    done("started");
+    let req = read().unwrap_or_default();
+    emit(json!({ "type": "control_response",
+        "response": { "subtype": "success", "request_id": req["request_id"] } }));
+    let stopped = req["request"]["subtype"] == "stop_task" && req["request"]["task_id"] == "b1";
+    let left = if stopped {
+        json!([watcher])
+    } else {
+        json!([{ "task_id": "x", "task_type": "local_bash", "description": req.to_string() }])
+    };
+    emit(json!({ "type": "system", "subtype": "background_tasks_changed", "tasks": left }));
 }
 
 fn hello() {

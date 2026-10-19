@@ -480,7 +480,7 @@ impl Root {
         let (running, doing) = match self.views.get(&id) {
             Some(View::Structured(v)) => {
                 let v = v.read(cx);
-                (v.elapsed(), v.doing())
+                (v.elapsed(), v.doing().or_else(|| v.background_line()))
             }
             _ => (
                 self.turns

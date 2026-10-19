@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use hyprspace_proto::run::RunFile;
-use hyprspace_proto::{Answer, Prompt, RunEvent, RunStatus, Tool};
+use hyprspace_proto::{Answer, Prompt, RunEvent, RunStatus, Task, Tool};
 
 use crate::markdown::{self, Block};
 
@@ -172,6 +172,7 @@ pub struct Transcript {
     /// Tokens in the context window and its size, as of the latest reply.
     pub context: Option<(u64, u64)>,
     pub compacting: bool,
+    pub background: Vec<Task>,
     last: Option<RunStatus>,
     failed: bool,
 }
@@ -329,6 +330,7 @@ impl Transcript {
                 self.model = Some(model);
                 self.thread = Some(thread);
                 self.cwd = Some(cwd);
+                self.background.clear();
             }
             RunEvent::Commands { .. } => {}
             RunEvent::Text { text } => {
@@ -450,6 +452,8 @@ impl Transcript {
             RunEvent::Steered | RunEvent::Usage { .. } | RunEvent::Limited { .. } => {}
             RunEvent::Error { message } => self.items.push(Item::Error(message)),
             RunEvent::Compacting => self.compacting = true,
+            RunEvent::Background { tasks } => self.background = tasks,
+            RunEvent::TaskOutput { .. } => {}
             RunEvent::Compacted { before, after } => {
                 self.compacting = false;
                 if let (Some(a), Some((_, window))) = (after, self.context) {
@@ -496,6 +500,7 @@ impl Transcript {
             }
             RunEvent::Failed { message } => {
                 self.items.push(Item::Error(message));
+                self.background.clear();
                 self.end_session();
             }
             RunEvent::Changes {
@@ -630,6 +635,23 @@ pub fn reply(source: &str, command: bool) -> Vec<Block> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn background_tasks_end_with_the_cli() {
+        let mut t = Transcript::default();
+        let task = Task {
+            id: "b1".into(),
+            kind: hyprspace_proto::TaskKind::Command,
+            label: "Dev server".into(),
+            tool: None,
+        };
+        t.apply(RunEvent::Background { tasks: vec![task] });
+        assert_eq!(t.background.len(), 1);
+        t.apply(RunEvent::Failed {
+            message: "Claude exited.".into(),
+        });
+        assert!(t.background.is_empty());
+    }
 
     #[test]
     fn replies_to_slash_commands_keep_their_lines() {

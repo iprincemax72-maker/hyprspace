@@ -12,7 +12,7 @@ use gpui::{
     Focusable, FontWeight, IntoElement, MouseButton, ScrollWheelEvent, SharedString, StyledText,
     Transformation, Window, div, list, percentage, prelude::*, relative,
 };
-use hyprspace_proto::{RunStatus, Tool};
+use hyprspace_proto::{RunStatus, TaskKind, Tool};
 
 use super::model::{self, Item};
 use super::rows::{self, Row};
@@ -1587,6 +1587,53 @@ fn tray(v: &TranscriptView, cx: &mut Context<TranscriptView>) -> Option<AnyEleme
             )
             .id("limit-row"),
         );
+    }
+    for (ix, task) in v.model.background.iter().enumerate() {
+        let (glyph, kind) = match task.kind {
+            TaskKind::Command => ("terminal", "Background command"),
+            TaskKind::Monitor => ("gauge", "Monitor"),
+            TaskKind::Subagent => ("bot", "Background subagent"),
+            TaskKind::Other => ("zap", "Background task"),
+        };
+        let label = match task.label.trim() {
+            "" => kind.to_string(),
+            l => l.to_string(),
+        };
+        let (id, open) = (task.id.clone(), v.task_open.as_ref() == Some(&task.id));
+        let toggle = task.id.clone();
+        rows.push(
+            line(icon(glyph, 14., colors::text3()).into_any_element(), label)
+                .child(
+                    div()
+                        .flex_none()
+                        .text_size(px(12.))
+                        .text_color(colors::text3())
+                        .child(kind),
+                )
+                .child(icon(
+                    if open { "chevron-up" } else { "chevron-down" },
+                    12.,
+                    colors::text3(),
+                ))
+                .child(
+                    small(widgets::button(("task-stop", ix), "Stop"))
+                        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                        .tooltip(widgets::tip("Stop this task"))
+                        .on_click(
+                            cx.listener(move |v, _: &ClickEvent, _, cx| {
+                                v.stop_task(id.clone(), cx)
+                            }),
+                        ),
+                )
+                .id(("task-row", ix))
+                .cursor_pointer()
+                .on_click(
+                    cx.listener(move |v, _: &ClickEvent, _, cx| v.toggle_task(toggle.clone(), cx)),
+                ),
+        );
+        if open {
+            rows.push(super::background::panel(v, task, ix, cx));
+        }
     }
     for (ix, p) in v.queue.iter().enumerate() {
         let text = p.text.split_whitespace().collect::<Vec<_>>().join(" ");

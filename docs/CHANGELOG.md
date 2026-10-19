@@ -4,6 +4,13 @@ Release notes for HyprSpace. Written **at ship time** — when you ask to ship, 
 changed since the last release and writes a few user-facing bullets; `deploy.ps1` records them here
 and uses them as the release notes + the in-app "What's new" notification. No per-task bookkeeping.
 
+## 0.24.24 — 2026-10-20
+
+- Commands and subagents Claude leaves running in the background now show above the message box, each with a Stop button.
+- Click a background task to see its command and its latest output, refreshed every second.
+- A thread's sidebar row says when something is running in the background.
+- Tool calls, thinking and subagent cards fold shut with an animation, the same way they open.
+
 ## 0.24.23 — 2026-10-19
 
 - The prompt rail on the left fits the window in long threads, and every tick stays reachable.

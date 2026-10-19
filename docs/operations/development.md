@@ -21,6 +21,8 @@ cargo run -p hyprspace -- <folder>    # one run, opened on a folder
 
 `scripts/dev.ps1` keeps its own state in `~/.hyprspace/dev`, copied once from your real threads
 with none of them open, so it never writes over the installed app's state or launches its agents.
+The dev loop is Ash's, and Ash chats in the copy it runs. An agent checking its own change uses
+[a test copy of its own](#a-test-copy-of-your-own).
 The app on screen keeps running until a build succeeds. Windows dev builds link with `rust-lld`
 (`.cargo/config.toml`) and dependencies carry no debug info, which took a one-file change from
 about 14 s to 7 s.
@@ -33,6 +35,68 @@ Checks that should have no side effects:
 - `HYPRSPACE_USAGE_FIXTURES` reads usage from files instead of the endpoints.
 - `HYPRSPACE_OPEN_LOG` logs editor and Explorer launches instead of running them.
 - `HYPRSPACE_DEBUG_HOOKS=1` logs Claude's hook payloads (they hold prompts).
+
+## A test copy of your own
+
+A copy of the app on state you wrote, with a fake agent, for seeing a change without touching
+anyone's threads. On Windows, in PowerShell from the repo root. A shell that keeps no variables
+between calls runs steps 1 to 3 as one script and reads the PID back from `$dir\pid.txt` later.
+
+1. Build the app and the fake agent, and copy the app out of `target/`. A running exe is locked,
+   and the next build writes there.
+
+   ```powershell
+   $dir = "$env:TEMP\hyprspace-test"
+   cargo build -p hyprspace -p hyprspace-harness
+   New-Item -ItemType Directory -Force "$dir\bin", "$dir\state\journals" | Out-Null
+   Copy-Item target\debug\hyprspace.exe $dir
+   Copy-Item target\debug\fake-cli.exe "$dir\bin\claude.exe"
+   ```
+
+2. Write `$dir\state\state.json`. Every field has a default except a launch's `agent`, `cwd` and
+   `permission`. Leave out `resume`, so no thread can reopen a real conversation:
+
+   ```json
+   {"spaces":[{"id":1,"name":"test","cwd":"C:\\path\\to\\folder","threads":[
+     {"id":2,"title":"Test","kind":{"type":"structured","launch":
+       {"agent":"claude","cwd":"C:\\path\\to\\folder","permission":"ask"}}}]}],
+    "nextId":3,"active":2,"introSeen":true,"composer":{"agent":"claude"}}
+   ```
+
+   Spaces and threads share one id counter, and `active` is the thread that opens.
+   `$dir\state\journals\thread-2.jsonl` holds what the thread replays, one `Entry`
+   (`crates/proto/src/state.rs`) per line. Write as much as the test needs: a scrolling bug wants
+   250 prompts, not 3.
+
+   ```json
+   {"type":"prompt","prompt":{"text":"Hello","images":[]}}
+   {"type":"run","event":{"type":"text","text":"A reply."}}
+   {"type":"run","event":{"type":"finished","status":"done","ms":0,"text":"","error":null}}
+   ```
+
+3. Start it on that state, with usage and opens kept local and the fake agent first on its PATH:
+
+   ```powershell
+   $env:HYPRSPACE_STATE_DIR = "$dir\state"; $env:HYPRSPACE_OPEN_LOG = "$dir\open.log"
+   $env:HYPRSPACE_USAGE_FIXTURES = "$dir\usage"; $env:PATH = "$dir\bin;$env:PATH"
+   $app = Start-Process "$dir\hyprspace.exe" -PassThru
+   $app.Id | Out-File "$dir\pid.txt" -Encoding ascii
+   ```
+
+   The fake agent plays what the prompt's text names (`crates/harness/fixtures/fake_cli/claude.rs`).
+   `wedge` starts a run that never ends, so what you send next queues behind it. Check that the
+   composer shows Claude and Structured before you send: a terminal thread's shell can still find
+   the real `claude`.
+
+4. Drive it by `$app.Id`. Find its window, post `WM_MOUSEMOVE`, `WM_LBUTTONDOWN`, `WM_LBUTTONUP`,
+   `WM_CHAR` and `WM_KEYDOWN` to it in client pixels, and capture it with `PrintWindow` (flag 3)
+   after `SetProcessDPIAware`. A chord with Ctrl or Alt needs the modifier held through
+   `AttachThreadInput` and `SetKeyboardState`. Posted clicks don't reach the sidebar, so pick the
+   thread that opens with `active` instead.
+
+5. Close it with `$app.CloseMainWindow()` and wait for it to exit, so it ends its terminals. Force
+   it by that PID only if it hangs, then check for a leftover `OpenConsole.exe` whose parent was
+   that PID.
 
 ## The check
 

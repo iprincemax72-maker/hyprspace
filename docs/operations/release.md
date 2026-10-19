@@ -1,10 +1,21 @@
 # Release
 
-Only ship when Ash asks.
+Only ship when Ash asks. Show Ash the bump and the notes first, and run it once you get a yes; a
+yes covers that one release.
 
 ```powershell
 .\deploy.ps1 patch "One bullet per line`nAnother bullet"
 ```
+
+Run it without `2>&1`. Redirected, git's line-ending warnings on stderr become errors, and the
+script stops halfway. It refuses a tree with uncommitted changes; when those belong to another
+thread, ask Ash what to do with them.
+
+`gh run list --repo xxashxx-svg/hyprspace --workflow release.yml --limit 1` names the run it
+started; watch it with `gh run watch <id> --repo xxashxx-svg/hyprspace`. The release is out when
+the draft is published and `latest.json` has the new version:
+`curl -sL https://github.com/xxashxx-svg/hyprspace/releases/latest/download/latest.json`. A step that fails on a GitHub error (a 5xx, a package mirror) usually passes on
+`gh run rerun <id> --failed`.
 
 Run it from a clean `main`. It bumps the workspace `version` in `Cargo.toml` and the workspace
 entries in `Cargo.lock`, writes the notes into `docs/CHANGELOG.md` (which the app bundles for
@@ -22,10 +33,9 @@ plain English. Bullets are split on newlines or ` | `.
 
 ## Which digit
 
-- **patch** for fixes, polish and one or two small additions. This is the default; Ash picks the
-  bump, so say which one before running `deploy.ps1`.
-- **minor** for a real batch of new features, or a change in how existing things work.
-- **major** is saved for 1.0.
+Ash picks the bump. Propose **patch**, even for a batch of new features; that's what Ash ships.
+**minor** is Ash's call for a big change in how existing things work, and **major** is saved for
+1.0.
 
 Versions only ever go up: the updater treats a flat or lower number as "no update", and release CI
 refuses a tag that doesn't match the workspace version. The app continued the Tauri app's numbers

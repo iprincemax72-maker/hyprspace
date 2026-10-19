@@ -49,10 +49,14 @@ I love to build, and I build complex things as simply as possible. Find the smal
 makes the right behavior obvious. Don't keep complexity because it already exists, and don't add
 machinery because it looks impressive. Fight scope creep.
 
-Treat this file as good defaults, not law. The developer you're working with can override any of
-it. If a rule here fights the task in front of you, say so before breaking it.
+What we never compromise on holds. Treat the rest of this file as good defaults, not law: the
+developer you're working with can override any of it. If a rule here fights the task in front of
+you, say so before breaking it.
 
 ## A small glossary
+
+- **you**: the agent reading this file. **Ash**: the developer you work for and report to.
+  **user**: someone using HyprSpace.
 
 Use these words in code, UI copy and docs. The full list is in
 [docs/internals/glossary.md](docs/internals/glossary.md).
@@ -69,12 +73,12 @@ Use these words in code, UI copy and docs. The full list is in
 
 ## The ways to hurt yourself
 
-1. **Touching the live app.** Ash is usually working in the installed HyprSpace while you work. A
-   dev build shares its state folder, `~/.hyprspace/native`, unless `HYPRSPACE_STATE_DIR` points
-   elsewhere (`scripts/dev.ps1` does this). Never kill a HyprSpace, shell or agent process by name.
-   Stop only what you started, by the PID you captured.
-2. **Running Ash's agents.** Test state copied from real state must not open any thread, or the
-   copy launches an agent on a conversation that may be live in the installed app.
+1. **Touching the live app.** You are most likely running inside the installed HyprSpace, as one
+   of its threads, while Ash works in it too. Closing it or writing its state
+   (`~/.hyprspace/native`) ends your own session and Ash's work. Never kill a HyprSpace, shell or
+   agent process by name. Stop only what you started, by the PID you captured.
+2. **Running Ash's agents.** A test copy started on Ash's threads can resume a real conversation,
+   or start a real CLI in a terminal. Test on state you wrote yourself (Seeing it in the app).
 3. **Orphaned ConPTY hosts.** Every exit path ends in `Engine::shutdown`, which kills every PTY.
    An orphaned `OpenConsole.exe` spins at about 8% CPU forever.
 4. **Typing into an agent CLI on a timer.** An Enter meant for a Codex prompt once landed on
@@ -82,6 +86,29 @@ Use these words in code, UI copy and docs. The full list is in
    (Claude's status line), or pass the prompt at start. User text never goes into a command line.
 5. **Spending Claude's usage bucket.** `HYPRSPACE_USAGE_FIXTURES` reads usage from files, and
    `HYPRSPACE_OPEN_LOG` logs editor and Explorer launches instead of running them.
+
+## One thread, one feature
+
+Each feature or fix gets a fresh thread. Nothing from earlier threads carries over except the
+repo, so the repo holds what the next thread needs.
+
+- **Start from a current `main`.** Check the branch and `git status` first. Run `git fetch`, and
+  `git pull --ff-only` when behind `origin/main`. In the main checkout, work on `main`; on another
+  branch, ask Ash before switching. Another thread may have uncommitted work in the same checkout:
+  leave it alone, and stage your own files by path.
+- **In a worktree** (HyprSpace's worktree option, under `~/.hyprspace/worktrees/`), work on its
+  `hs/` branch and commit there. Its own `target/` makes the first build take a few minutes. To
+  ship, rebase it on `origin/main`, run the check, push it with `git push origin HEAD:main`, then
+  run the release from the main checkout after `git pull --ff-only`.
+- **Read the area's page first.** [docs/README.md](docs/README.md) lists one page per area:
+  sessions, terminals, threads, the viewer, usage, updates, the phone, other computers. Read the
+  page for the area you're changing, where there is one, before you change it.
+- **Stay on the feature.** Something else broken goes in your report, not your diff.
+- **End with a report**: what changed, how you checked it, and what you couldn't check. Commits
+  and releases wait for Ash (Checks, commits and releases).
+- **Leave lessons in the repo.** A trap you hit, or a decision a later thread would get wrong,
+  goes in `docs/internals` (see Documentation) or in a one-line comment at the trap. The chat
+  ends; the repo stays.
 
 ## Hit every surface
 
@@ -91,28 +118,45 @@ work done, walk this list:
 - **Session kinds.** Structured and terminal threads differ in nearly everything. Decide for both.
 - **Agents.** Claude and Codex each have a harness, a launch command and their own files. A
   provider-shaped feature needs a decision per agent, even if it's "not for Codex".
-- **Platforms.** Windows and macOS. `secondary` in a key binding is Ctrl on one and Cmd on the
-  other.
+- **Platforms.** Windows and macOS. `secondary` in a key binding is Ctrl on Windows and Cmd on
+  macOS.
 - **Themes.** Six themes, each with a light and a dark side. Check both sides.
 - **Entry points.** A thing reachable from a menu is often also in the command palette, Settings or
-  a key binding. Settings, Shortcuts is a hand-kept list: a changed binding changes there too.
+  a key binding. Besides its `KeyBinding`, a shortcut is written out by hand in Settings,
+  Shortcuts, in the palette's hints and in the intro's shortcuts step. A change goes in all of
+  them.
 - **Reverse states.** Settle needs bring back, snooze needs wake, a way in needs a way out.
 - **The phone.** The phone sees the sidebar through the board (`crates/ui/src/phone`) and acts
   through the same code as a click. A new thread state, row line or action may need the board,
   `crates/proto/src/phone.rs` and the Android app (`mobile/`). A changed wire type moves
   `PROTOCOL` and the fixtures the proto test writes.
+- **Other computers.** A thread can run on another of Ash's computers and be driven from this one
+  ([docs/internals/machines.md](docs/internals/machines.md)). Anything that reaches the engine
+  needs a decision for those threads, even if it's "this computer only".
 - **Saved state.** `AppState` is saved whole. A changed or removed field must still load an old
   `state.json` (serde defaults, or a rewrite before parsing like `requests::without_gemini`).
 - **Docs.** Check whether the change makes existing guidance wrong. See Documentation below.
 
-## Run, check, ship
+## Seeing it in the app
 
-```bash
-./scripts/dev.ps1                     # the dev loop: rebuilds on save, own state folder
-cargo run -p hyprspace -- <folder>    # one run, opened on a folder
-```
+UI changes are checked by running the app, when Ash asks you to test. Otherwise, end with the
+check and say in your report what you didn't see running. Test in a copy of your own, never in
+the one `scripts/dev.ps1` runs: that one is Ash's, and Ash chats in it. The recipe is in
+[docs/operations/development.md](docs/operations/development.md#a-test-copy-of-your-own):
 
-The check. CI runs it on Windows and macOS for every push to `main`:
+- **Your own exe and state.** A copy of the exe outside `target/`, started with
+  `HYPRSPACE_STATE_DIR` on a scratch folder holding a `state.json` and journals you wrote.
+- **A fake agent.** The harness's fake CLI first on that copy's PATH only, and the composer on
+  Claude and Structured before you send.
+- **Look before you act.** Capture the window before every click, and a burst of frames to judge
+  motion.
+- **Close it by its PID**, with a close message, so its terminals end with it. When Ash wants to
+  try the change, leave it open and say what it runs.
+
+## Checks, commits and releases
+
+The check. CI runs it on Windows and macOS for every push to `main`, and a commit needs it to
+pass:
 
 ```bash
 cargo fmt --all --check
@@ -127,16 +171,18 @@ The Android app has a check of its own, run from `mobile/` (CI runs it on Linux)
 ```
 
 - Prove a change the smallest way that works: the tests you touched, then the check before a
-  commit. UI is checked by running the app.
+  commit.
 - Test logic and behavior at the edges: harnesses against `crates/harness/fixtures/fake_cli`,
   engine logic with unit tests. Don't add tests that mirror the implementation.
-- **Never commit, push or ship unless asked.** Several agents may be working at once, and a
-  surprise release is hard to undo.
+- **Commit when Ash asks, push when Ash says.** Show the message and wait for a yes; a yes covers
+  that one commit. The message is one short line on what the change does, like `Hide the prompt
+  rail until the pointer comes near`, with a short body only when the why isn't obvious. It
+  carries no co-author or "generated with" lines and says nothing about how it was made.
+- **Ship when Ash asks**, by [docs/operations/release.md](docs/operations/release.md): propose
+  the bump and the notes, wait for a yes, run `deploy.ps1`, and watch the release until
+  `latest.json` has the new version.
 - **Versions belong to `deploy.ps1`.** Never hand-edit the workspace `version` in `Cargo.toml` or
   the workspace entries in `Cargo.lock`.
-- **Release notes are written at ship time.** Don't keep a running changelog. When asked to ship,
-  read `git log <lastTag>..HEAD` and write a few short user-facing bullets for `deploy.ps1`. See
-  [docs/operations/release.md](docs/operations/release.md).
 
 ## How it works
 
@@ -176,7 +222,9 @@ Architecture and its reasons: [docs/internals/overview.md](docs/internals/overvi
   neutral, low-contrast look that's there.
 - **One concern per file**, in a folder per area (`crates/ui/src/composer`, `dock`). A file past
   about 600 lines wants splitting.
-- **Comment the why, not the what.** Dead code leaves with the change that orphans it.
+- **Comments are for traps.** Names carry the meaning, so most new code has none. A quirk or
+  workaround the code can't show gets one short line saying why. Existing comments stay. Dead code
+  leaves with the change that orphans it.
 - **Copy is plain English.** No em dashes, no curly quotes, no filler. One idea per sentence. Say
   what happens, not how it feels.
 - **Keep one view per thread.** `Root.views` holds them, so switching threads never rebuilds a
@@ -193,4 +241,4 @@ Most changes need no doc change. Agents can read the code.
   Git keeps history.
 - When a documented decision changes, rewrite the text. Don't append the new story after the old.
 - `docs/operations/` holds the dev setup and the release.
-- Don't commit plans, research notes or scratch files.
+- Don't commit plans, research notes or scratch files. Keep them outside the repo.

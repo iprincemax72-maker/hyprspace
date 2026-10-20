@@ -185,12 +185,19 @@ pub fn thumb(path: &Path, size: f32) -> AnyElement {
         return video_thumb(path, size);
     }
     if is_image(path) {
-        return img(path.to_path_buf())
+        // Cover scales past the box, and an img paints outside its bounds unless a parent clips
+        return div()
             .size(px(size))
-            .object_fit(ObjectFit::Cover)
+            .flex_none()
             .rounded_md()
+            .overflow_hidden()
             .border_1()
             .border_color(colors::border2())
+            .child(
+                img(path.to_path_buf())
+                    .size_full()
+                    .object_fit(ObjectFit::Cover),
+            )
             .into_any_element();
     }
     let name = path

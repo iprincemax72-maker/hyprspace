@@ -127,10 +127,15 @@ impl Follow {
             let to = target(list, &trip.aim);
             let t = (now - trip.start).as_secs_f32() / trip.length.as_secs_f32();
             if t >= 1. {
-                if matches!(trip.aim, Aim::Bottom) {
-                    self.snap(list);
-                } else {
-                    set(list, to);
+                match trip.aim {
+                    Aim::Bottom => self.snap(list),
+                    // by the row, not the pixel: rows not drawn yet can count as no height, and a
+                    // pixel lands past them
+                    Aim::Item(ix) if to < max(list) => list.scroll_to(ListOffset {
+                        item_ix: ix,
+                        offset_in_item: px(0.),
+                    }),
+                    Aim::Item(_) => set(list, to),
                 }
                 self.trip = None;
             } else {

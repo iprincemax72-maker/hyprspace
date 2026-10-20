@@ -4,6 +4,13 @@ Release notes for HyprSpace. Written **at ship time** — when you ask to ship, 
 changed since the last release and writes a few user-facing bullets; `deploy.ps1` records them here
 and uses them as the release notes + the in-app "What's new" notification. No per-task bookkeeping.
 
+## 0.24.25 — 2026-10-20
+
+- Clicking a tick on the prompt rail lands on that prompt, even in threads that have been open a long time.
+- A run's "Edited files" card stays above the message you queued after it.
+- Tall images in your messages stay inside the message.
+- Code blocks without a language have even space above and below.
+
 ## 0.24.24 — 2026-10-20
 
 - Commands and subagents Claude leaves running in the background now show above the message box, each with a Stop button.

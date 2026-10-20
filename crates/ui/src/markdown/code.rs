@@ -186,29 +186,38 @@ impl RenderOnce for CodeBlock {
             None => Vec::new(),
         };
         let lang = self.lang;
+        let named = !lang.trim().is_empty();
         let copy = crate::widgets::CopyButton::new(format!("{key}-copy"), self.text.clone());
         div()
+            .relative()
             .flex()
             .flex_col()
             .rounded(px(10.))
             .bg(colors::ink(0.035))
+            .map(|d| {
+                if named {
+                    d.child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .pl(px(14.))
+                            .pr(px(6.))
+                            .pt(px(5.))
+                            .text_size(px(11.))
+                            .text_color(colors::text3())
+                            .child(lang)
+                            .child(copy),
+                    )
+                } else {
+                    d.child(div().absolute().top(px(6.)).right(px(6.)).child(copy))
+                }
+            })
             .child(
                 div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
                     .pl(px(14.))
-                    .pr(px(6.))
-                    .pt(px(5.))
-                    .text_size(px(11.))
-                    .text_color(colors::text3())
-                    .child(lang)
-                    .child(copy),
-            )
-            .child(
-                div()
-                    .px(px(14.))
-                    .pt(px(2.))
+                    .pr(px(if named { 14. } else { 40. }))
+                    .pt(px(if named { 2. } else { 10. }))
                     .pb(px(10.))
                     .font_family(MONO)
                     .text_size(px(12.))

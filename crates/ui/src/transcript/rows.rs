@@ -24,6 +24,17 @@ pub fn quiet_end(items: &[Item], start: usize) -> usize {
     start + items[start..].iter().take_while(|i| quiet(i)).count()
 }
 
+// a run's changes are worked out after it ends, so they can land after the next prompt
+fn late(all: &[Item], ix: usize) -> Option<usize> {
+    if !matches!(all[ix], Item::Changes { .. }) {
+        return None;
+    }
+    let run = all[..ix]
+        .iter()
+        .rposition(|i| matches!(i, Item::Finished { .. }))?;
+    (run + 1..ix).find(|&j| matches!(all[j], Item::User { .. }))
+}
+
 pub fn plan(all: &[Item], loading: bool, live: bool) -> Vec<Row> {
     let mut rows = Vec::new();
     if loading {
@@ -52,12 +63,19 @@ pub fn plan(all: &[Item], loading: bool, live: bool) -> Vec<Row> {
                     ..
                 } if *ms < 10_000
             );
-            if !quick {
+            if !quick && late(all, ix).is_none() {
                 let user = matches!(item, Item::User { .. });
                 rows.push(Row::Item { ix, user });
             }
             ix += 1;
         }
+    }
+    for (ix, prompt) in (0..all.len()).filter_map(|ix| Some((ix, late(all, ix)?))) {
+        let at = rows
+            .iter()
+            .position(|r| matches!(r, Row::Item { ix, .. } if *ix == prompt))
+            .unwrap_or(rows.len());
+        rows.insert(at, Row::Item { ix, user: false });
     }
     if live {
         rows.push(Row::Working);
@@ -150,6 +168,33 @@ mod tests {
             ]
         );
         assert_eq!(quiet_end(&items, 1), 4);
+    }
+
+    #[test]
+    fn a_run_s_changes_stay_above_the_prompt_sent_before_they_came() {
+        let changes = Item::Changes {
+            before: "a".into(),
+            after: "b".into(),
+            files: Vec::new(),
+            all: false,
+            undo: super::super::model::Undo::Ready,
+        };
+        let long = Item::Finished {
+            status: RunStatus::Done,
+            ms: 95_000,
+            error: None,
+        };
+        let items = [user(), long, user(), changes];
+        assert_eq!(
+            plan(&items, false, true),
+            [
+                Row::Item { ix: 0, user: true },
+                Row::Item { ix: 1, user: false },
+                Row::Item { ix: 3, user: false },
+                Row::Item { ix: 2, user: true },
+                Row::Working,
+            ]
+        );
     }
 
     #[test]

@@ -104,6 +104,7 @@ dependencies {
     implementation(libs.commonmark)
     implementation(libs.commonmark.gfm.tables)
     implementation(libs.commonmark.gfm.strikethrough)
+    implementation(libs.commonmark.autolink)
 
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)

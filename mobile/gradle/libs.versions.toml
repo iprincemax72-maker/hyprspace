@@ -38,6 +38,7 @@ datastore = { module = "androidx.datastore:datastore-preferences", version.ref =
 commonmark = { module = "org.commonmark:commonmark", version.ref = "commonmark" }
 commonmark-gfm-tables = { module = "org.commonmark:commonmark-ext-gfm-tables", version.ref = "commonmark" }
 commonmark-gfm-strikethrough = { module = "org.commonmark:commonmark-ext-gfm-strikethrough", version.ref = "commonmark" }
+commonmark-autolink = { module = "org.commonmark:commonmark-ext-autolink", version.ref = "commonmark" }
 junit = { module = "junit:junit", version.ref = "junit" }
 
 [plugins]

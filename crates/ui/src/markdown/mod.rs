@@ -11,7 +11,7 @@ pub mod select;
 
 use std::ops::Range;
 
-use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd, TextMergeStream};
 
 pub use fade::Fade;
 pub use render::render;
@@ -145,8 +145,16 @@ impl Builder {
         }
         let mut style = self.style.clone();
         style.code = code;
-        if let Some((_, inline)) = self.open.as_mut() {
+        let Some((_, inline)) = self.open.as_mut() else {
+            return;
+        };
+        if code || style.link.is_some() {
             inline.push(text, &style);
+            return;
+        }
+        for (part, url) in bare_urls(text) {
+            style.link = url;
+            inline.push(part, &style);
         }
     }
 
@@ -308,6 +316,42 @@ impl Builder {
     }
 }
 
+/// `text` cut around the web addresses written into it bare, each paired with its address.
+fn bare_urls(text: &str) -> Vec<(&str, Option<String>)> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(at) = ["https://", "http://"]
+        .iter()
+        .filter_map(|p| rest.find(p))
+        .min()
+    {
+        let end = rest[at..]
+            .find(|c: char| c.is_whitespace() || matches!(c, '<' | '>' | '"' | '`'))
+            .map_or(rest.len(), |e| at + e);
+        let mut url = &rest[at..end];
+        while let Some(c) = url.chars().last() {
+            let unmatched = url.matches(')').count() > url.matches('(').count();
+            if matches!(c, '.' | ',' | ';' | ':' | '!' | '?' | '\'' | ']')
+                || (c == ')' && unmatched)
+            {
+                url = &url[..url.len() - 1];
+            } else {
+                break;
+            }
+        }
+        if url.len() <= "https://".len() {
+            out.push((&rest[..at + url.len()], None));
+            rest = &rest[at + url.len()..];
+            continue;
+        }
+        out.push((&rest[..at], None));
+        out.push((url, Some(url.to_string())));
+        rest = &rest[at + url.len()..];
+    }
+    out.push((rest, None));
+    out
+}
+
 /// Parses `source` into blocks. Never fails: anything it does not draw becomes plain text.
 pub fn parse(source: &str) -> Vec<Block> {
     let mut b = Builder {
@@ -316,7 +360,7 @@ pub fn parse(source: &str) -> Vec<Block> {
     };
     let options =
         Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
-    for event in Parser::new_ext(source, options) {
+    for event in TextMergeStream::new(Parser::new_ext(source, options)) {
         match event {
             Event::Start(tag) => b.start(tag),
             Event::End(tag) => b.end(tag),
@@ -448,6 +492,33 @@ mod tests {
         assert_eq!(&p.text[p.spans[0].0.clone()], "cargo test");
         assert!(p.spans[1].1.bold);
         assert_eq!(p.spans[2].1.link.as_deref(), Some("https://x.dev"));
+    }
+
+    #[test]
+    fn a_bare_address_is_a_link_without_the_full_stop_after_it() {
+        let b = parse(
+            "Desktop: https://github.com/x/y/runs/1. Docs (https://x.dev/a_(b)), `https://not.me`",
+        );
+        let p = para(&b);
+        let links: Vec<_> = p
+            .spans
+            .iter()
+            .filter_map(|(r, s)| s.link.as_deref().map(|l| (&p.text[r.clone()], l)))
+            .collect();
+        assert_eq!(
+            links,
+            [
+                (
+                    "https://github.com/x/y/runs/1",
+                    "https://github.com/x/y/runs/1"
+                ),
+                ("https://x.dev/a_(b)", "https://x.dev/a_(b)"),
+            ]
+        );
+        assert_eq!(
+            p.text,
+            "Desktop: https://github.com/x/y/runs/1. Docs (https://x.dev/a_(b)), https://not.me"
+        );
     }
 
     #[test]

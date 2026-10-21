@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import com.hyprspace.android.ui.Hues
 import com.hyprspace.android.ui.LocalHues
 import com.hyprspace.android.ui.Mono
+import org.commonmark.ext.autolink.AutolinkExtension
 import org.commonmark.ext.gfm.strikethrough.Strikethrough
 import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension
 import org.commonmark.ext.gfm.tables.TableBlock
@@ -69,7 +70,7 @@ import org.commonmark.node.ThematicBreak
 import org.commonmark.parser.Parser
 
 private val parser: Parser = Parser.builder()
-    .extensions(listOf(TablesExtension.create(), StrikethroughExtension.create()))
+    .extensions(listOf(TablesExtension.create(), StrikethroughExtension.create(), AutolinkExtension.create()))
     .build()
 
 @Composable

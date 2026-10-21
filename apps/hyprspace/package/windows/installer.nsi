@@ -214,6 +214,9 @@ Section Install
   WriteRegDWORD HKCU "${UNINSTKEY}" "EstimatedSize" $0
 
   Call Shortcuts
+  ; the exe keeps its path, so the taskbar keeps its old icon until told the files changed
+  System::Call 'shell32::SHChangeNotify(i 0x2000, i 0x1005, w "$INSTDIR\${MAINBINARY}", p 0)'
+  System::Call 'shell32::SHChangeNotify(i 0x2000, i 0x1005, w "$SMPROGRAMS\${PRODUCTNAME}.lnk", p 0)'
 
   ${If} $PassiveMode = 1
     SetAutoClose true

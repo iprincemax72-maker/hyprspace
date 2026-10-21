@@ -81,7 +81,7 @@ fn ask_accessibility(cx: &mut App) {
 
 impl Root {
     pub(super) fn mac_group(&self, cx: &mut Context<Self>) -> AnyElement {
-        let mut control = |id: &'static str, allowed: bool, ask: fn(&mut App)| -> AnyElement {
+        let control = |id: &'static str, allowed: bool, ask: fn(&mut App)| -> AnyElement {
             if allowed {
                 text("Allowed").into_any_element()
             } else {

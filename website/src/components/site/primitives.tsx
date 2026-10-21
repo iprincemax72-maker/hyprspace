@@ -175,13 +175,13 @@ export function AppFrame({
   )
 }
 
-/** The app's mark: a bare isometric cube. */
+/** The app's mark: an open box, its sides pulled apart under an outlined lid. */
 export function AppIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden>
-      <path d="M12 3 L20.5 8 L12 13 L3.5 8 Z" fill="#3d54e8" />
-      <path d="M3.5 8 L12 13 L12 21 L3.5 16 Z" fill="#f5f5f5" />
-      <path d="M20.5 8 L20.5 16 L12 21 L12 13 Z" fill="#767676" />
+      <path d="M2.8 8.4 L11.2 13.3 L11.2 21 L2.8 16.1 Z" fill="#f5f5f5" />
+      <path d="M21.2 8.4 L21.2 16.1 L12.8 21 L12.8 13.3 Z" fill="#a3a3a3" />
+      <path d="M12 2.6 L19.4 6.9 L12 11.2 L4.6 6.9 Z" fill="none" stroke="#a3a3a3" strokeWidth="1.3" strokeLinejoin="round" />
     </svg>
   )
 }

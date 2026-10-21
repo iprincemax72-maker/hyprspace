@@ -138,7 +138,7 @@ export function PhoneVignette() {
             <span className="flex h-6 flex-1 items-center justify-center rounded-md bg-white/[0.06] text-[11px]">
               Deny
             </span>
-            <span className="flex h-6 flex-1 items-center justify-center rounded-md bg-(--accent) text-[11px] text-white">
+            <span className="flex h-6 flex-1 items-center justify-center rounded-md bg-(--accent) text-[11px] text-(--on-accent)">
               Allow
             </span>
           </div>

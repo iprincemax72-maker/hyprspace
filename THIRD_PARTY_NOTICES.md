@@ -118,7 +118,7 @@ picture; the artwork belongs to its artists.
 
 The icons in `crates/ui/assets/icons/` are from [Lucide](https://lucide.dev) (lucide-react
 1.21.0), drawn from the same set the Tauri app uses. (`crates/ui/assets/logo/` is HyprSpace's
-own cube from the Tauri app's `Logo.tsx`, one face per file.)
+own mark, one face per file.)
 
 ```
 ISC License

@@ -105,9 +105,9 @@ const FILES: &[(&str, &[u8])] = files!(
     "icons/pause.svg",
     "icons/volume-2.svg",
     "icons/volume-x.svg",
-    "logo/top.svg",
     "logo/left.svg",
     "logo/right.svg",
+    "logo/lid.svg",
     // Settings: the Shortcuts and About tabs, and the terminal font size stepper
     "icons/keyboard.svg",
     "icons/info.svg",
@@ -176,8 +176,8 @@ pub fn icon(name: &str, size: f32, color: Hsla) -> Svg {
         .text_color(color)
 }
 
-/// The HyprSpace cube, `size` pixels square: the accent on top, the text colors on its sides,
-/// like the Tauri app's Logo.tsx.
+/// The HyprSpace mark, `size` pixels square: an open box, its two sides pulled apart under an
+/// outlined lid, in the text colors so it is the same in every theme.
 pub fn logo(size: f32) -> gpui::Div {
     let face = |name: &str, color: Hsla| {
         svg()
@@ -190,9 +190,9 @@ pub fn logo(size: f32) -> gpui::Div {
         .relative()
         .flex_none()
         .size(px(size))
-        .child(face("top", crate::colors::accent()))
         .child(face("left", crate::colors::text1()))
-        .child(face("right", crate::colors::text3()))
+        .child(face("right", crate::colors::text2()))
+        .child(face("lid", crate::colors::text2()))
 }
 
 /// A provider's mark by its CLI name, for the agents the app can't start yet (OpenCode, Grok)

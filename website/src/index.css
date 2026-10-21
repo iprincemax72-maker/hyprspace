@@ -3,7 +3,7 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* HyprSpace palette — near-black surfaces, indigo brand, zinc text ramp. */
+/* HyprSpace palette — near-black surfaces, white brand, zinc text ramp. */
 :root {
   --radius: 0.625rem;
   --background: #09090b;
@@ -23,10 +23,10 @@
   --destructive: #ef4444;
   --border: rgba(255, 255, 255, 0.09);
   --input: rgba(255, 255, 255, 0.12);
-  --ring: #3d54e8;
+  --ring: #a1a1aa;
 
-  --brand: #3d54e8;
-  --brand-lit: #6b7cff;
+  --brand: #fafafa;
+  --brand-lit: #ffffff;
 }
 
 @theme inline {
@@ -120,7 +120,8 @@
   --b0: rgb(255 255 255 / 0.035);
   --b1: rgb(255 255 255 / 0.06);
   --b2: rgb(255 255 255 / 0.1);
-  --accent: #1b4ed8;
+  --accent: #f5f5f5;
+  --on-accent: #161616;
   --busy: #f59e0b;
   --wait: #3b82f6;
   --ok: #10b981;

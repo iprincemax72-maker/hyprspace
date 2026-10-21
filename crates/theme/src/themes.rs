@@ -25,8 +25,8 @@ pub const THEMES: &[ThemeInfo] = &[
         blurb: "Neutral",
         hue: 264.0,
         tint: 0.0,
-        dark: (0.488, 0.217),
-        light: (0.45, 0.2),
+        dark: (0.97, 0.0),
+        light: (0.22, 0.0),
     },
     ThemeInfo {
         id: "orchid",
@@ -114,7 +114,7 @@ fn make(hue: f64, tint: f64, (al, ac): (f64, f64), dark: bool) -> Theme {
     // white text on a deep accent, near-black text on a bright one
     let on_accent = |l: f64| {
         if l >= 0.66 {
-            oklch(0.2, 0.02, hue)
+            oklch(0.2, ac.min(0.02), hue)
         } else {
             WHITE
         }
@@ -130,7 +130,7 @@ fn make(hue: f64, tint: f64, (al, ac): (f64, f64), dark: bool) -> Theme {
             surface3: oklch(0.29, tint, hue),
             term_bg: oklch(0.2, tint, hue),
             accent: oklch(al, ac, hue),
-            accent_hover: oklch(al + 0.06, ac, hue),
+            accent_hover: oklch(if ac > 0.0 { al + 0.06 } else { al - 0.08 }, ac, hue),
             accent_dim: ink.a(0.07),
             on_accent: on_accent(al),
             link: oklch(al.max(0.72), ac.min(0.14), hue),
@@ -150,8 +150,8 @@ fn make(hue: f64, tint: f64, (al, ac): (f64, f64), dark: bool) -> Theme {
             diff_add: Color::rgb(0x10b981),
             diff_del: Color::rgb(0xef4444),
             term_fg: oklch(0.95, tint / 2.0, hue),
-            cursor: oklch(0.82, 0.1, hue),
-            selection: oklch_a(0.82, 0.1, hue, 0.25),
+            cursor: oklch(0.82, ac.min(0.1), hue),
+            selection: oklch_a(0.82, ac.min(0.1), hue, 0.25),
             ansi: XTERM,
             syntax: syntax::derive(hue, tint, true),
         }
@@ -246,9 +246,10 @@ mod tests {
         let d = build("t3", true);
         assert_eq!(d.bg, Color::rgb(0x161616));
         assert_eq!(d.border2, Color::rgba(0xffffff1a));
-        assert_eq!(d.on_accent, WHITE);
+        assert_eq!(d.on_accent, d.bg);
         let l = build("t3", false);
         assert_eq!(l.ink, BLACK);
+        assert_eq!(l.on_accent, WHITE);
         assert_eq!(build("nope", true), d);
     }
 

@@ -43,6 +43,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -121,7 +123,7 @@ fun PairScreen(app: App, onDone: () -> Unit, onCancel: (() -> Unit)?) {
             }
             mode == Mode.Type -> Typed(onPair = ::pair)
             incoming != null -> Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Cube(56)
+                Mark(56)
                 Text("Pair with ${incoming.name}?", style = MaterialTheme.typography.headlineSmall, color = h.text1)
                 Text(
                     "This phone will see that computer's threads and can work in them. You can unpair from either side at any time.",
@@ -144,7 +146,7 @@ private fun Intro(error: String?, onScan: () -> Unit, onType: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Spacer(Modifier.height(24.dp))
-        Cube(64)
+        Mark(64)
         Text("Your threads, on your phone", style = MaterialTheme.typography.headlineSmall, color = h.text1)
         Text(
             "Pair this phone with HyprSpace on your computer to follow your agents, answer them and start new work. It talks to your computer directly, over your network or Tailscale.",
@@ -248,9 +250,9 @@ private fun Primary(text: String, enabled: Boolean = true, onClick: () -> Unit) 
     ) { Text(text, fontWeight = FontWeight.SemiBold) }
 }
 
-/** HyprSpace's cube, the mark on the desktop's title bar. */
+/** HyprSpace's mark, an open box as on the desktop's title bar. */
 @Composable
-fun Cube(size: Int) {
+fun Mark(size: Int) {
     val h = LocalHues.current
     Canvas(Modifier.size(size.dp)) {
         val s = this.size.width / 24f
@@ -259,8 +261,12 @@ fun Cube(size: Int) {
             for (i in 2 until pts.size step 2) lineTo(pts[i] * s, pts[i + 1] * s)
             close()
         }
-        drawPath(p(12f, 3f, 20.5f, 8f, 12f, 13f, 3.5f, 8f), Color(0xFF3D54E8))
-        drawPath(p(3.5f, 8f, 12f, 13f, 12f, 21f, 3.5f, 16f), h.text1)
-        drawPath(p(20.5f, 8f, 20.5f, 16f, 12f, 21f, 12f, 13f), h.text3)
+        drawPath(p(2.8f, 8.4f, 11.2f, 13.3f, 11.2f, 21f, 2.8f, 16.1f), h.text1)
+        drawPath(p(21.2f, 8.4f, 21.2f, 16.1f, 12.8f, 21f, 12.8f, 13.3f), h.text2)
+        drawPath(
+            p(12f, 2.6f, 19.4f, 6.9f, 12f, 11.2f, 4.6f, 6.9f),
+            h.text2,
+            style = Stroke(width = 1.3f * s, join = StrokeJoin.Round),
+        )
     }
 }

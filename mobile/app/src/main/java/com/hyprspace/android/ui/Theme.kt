@@ -81,12 +81,12 @@ val DefaultTheme = BoardTheme(
     scheme = Scheme.System,
     light = Palette(
         bg = 0xF7F7F7FF, surface1 = 0xF7F7F7FF, surface2 = 0xFDFDFDFF, surface3 = 0xEBEBEBFF,
-        accent = 0x1745C2FF, onAccent = 0xFFFFFFFF, link = 0x1745C2FF,
+        accent = 0x1B1B1BFF, onAccent = 0xFFFFFFFF, link = 0x1B1B1BFF,
         text1 = 0x1B1B1BFF, text2 = 0x585858FF, text3 = 0x808080FF,
         border0 = 0x0000000D, border1 = 0x00000014, border2 = 0x00000021, ink = 0x000000FF,
         busy = 0xF59E0BFF, waiting = 0x3B82F6FF, ok = 0x10B981FF, error = 0xEF4444FF,
         diffAdd = 0x059669FF, diffDel = 0xDC2626FF,
-        termBg = 0xF7F7F7FF, termFg = 0x222222FF, cursor = 0x1745C2FF,
+        termBg = 0xF7F7F7FF, termFg = 0x222222FF, cursor = 0x1B1B1BFF,
         ansi = listOf(
             0x282C34FF, 0xC4283CFF, 0x248444FF, 0xAA7400FF, 0x1E64D6FF, 0x923CBAFF, 0x00869AFF, 0x78808CFF,
             0x6E7682FF, 0xD83C50FF, 0x2E9854FF, 0xBA840AFF, 0x3278ECFF, 0xA650CEFF, 0x0A9AB0FF, 0x1E2228FF,
@@ -94,12 +94,12 @@ val DefaultTheme = BoardTheme(
     ),
     dark = Palette(
         bg = 0x161616FF, surface1 = 0x161616FF, surface2 = 0x1F1F1FFF, surface3 = 0x2B2B2BFF,
-        accent = 0x1B4ED8FF, onAccent = 0xFFFFFFFF, link = 0x77A2FCFF,
+        accent = 0xF5F5F5FF, onAccent = 0x161616FF, link = 0xF5F5F5FF,
         text1 = 0xF5F5F5FF, text2 = 0xA4A4A4FF, text3 = 0x747474FF,
         border0 = 0xFFFFFF09, border1 = 0xFFFFFF0F, border2 = 0xFFFFFF1A, ink = 0xFFFFFFFF,
         busy = 0xF59E0BFF, waiting = 0x3B82F6FF, ok = 0x10B981FF, error = 0xEF4444FF,
         diffAdd = 0x10B981FF, diffDel = 0xEF4444FF,
-        termBg = 0x161616FF, termFg = 0xEEEEEEFF, cursor = 0xA3C4FFFF,
+        termBg = 0x161616FF, termFg = 0xEEEEEEFF, cursor = 0xC4C4C4FF,
         ansi = listOf(
             0x181E26FF, 0xFF7A8EFF, 0x86E795FF, 0xF4CD72FF, 0x89BEFFFF, 0xD0B0FFFF, 0x7CE8EDFF, 0xD2DAE6FF,
             0x6E7888FF, 0xFFA8B4FF, 0xB0F5BAFF, 0xFFE095FF, 0xAED2FFFF, 0xE5CBFFFF, 0xA7F4F7FF, 0xF4F7FCFF,

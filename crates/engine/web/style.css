@@ -31,9 +31,9 @@
   --surface1: #f5f5f4;
   --surface2: #ffffff;
   --surface3: #ffffff;
-  --accent: #3b6ef5;
+  --accent: #1a1a19;
   --on-accent: #ffffff;
-  --link: #3b6ef5;
+  --link: #1a1a19;
   --text1: #1a1a19;
   --text2: #55554f;
   --text3: #8a8a83;
@@ -61,6 +61,9 @@
     --surface1: #1b1b1b;
     --surface2: #202020;
     --surface3: #262626;
+    --accent: #ededec;
+    --on-accent: #161616;
+    --link: #ededec;
     --text1: #ededec;
     --text2: #b4b4af;
     --text3: #7c7c77;

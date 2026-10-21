@@ -16,8 +16,8 @@ export function Tick({ on, some }: { on?: boolean; some?: boolean }) {
         on || some ? "border-(--accent) bg-(--accent)" : "border-[rgb(116_116_116/0.55)]",
       )}
     >
-      {on && <Check className="size-[11px] text-white" strokeWidth={3} />}
-      {some && <i className="block h-[1.5px] w-[7px] bg-white" />}
+      {on && <Check className="size-[11px] text-(--on-accent)" strokeWidth={3} />}
+      {some && <i className="block h-[1.5px] w-[7px] bg-(--on-accent)" />}
     </span>
   )
 }
@@ -57,7 +57,7 @@ export function CommitBox() {
         <div className="min-h-14 px-2.5 py-2 text-(--t3)">Description</div>
       </div>
       <div className="flex gap-1.5">
-        <span className="flex h-[26px] flex-1 items-center justify-center rounded-md bg-(--accent) text-[12px] font-medium text-white">
+        <span className="flex h-[26px] flex-1 items-center justify-center rounded-md bg-(--accent) text-[12px] font-medium text-(--on-accent)">
           Commit to resume-fix
         </span>
         <span className="flex h-[26px] flex-1 items-center justify-center rounded-lg bg-white/[0.06] text-[12px] font-medium">

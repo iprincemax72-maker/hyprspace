@@ -9,6 +9,8 @@ mod appearance;
 mod background;
 mod controls;
 mod general;
+#[cfg(target_os = "macos")]
+mod mac;
 mod machines;
 mod phone;
 mod picker;

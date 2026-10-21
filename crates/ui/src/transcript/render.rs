@@ -53,6 +53,7 @@ pub fn view(
             cx.on_blur(&input, window, |_, _, cx| cx.notify()),
         ];
     }
+    v.follow.ease(&v.list, window);
     if !v.finding() {
         v.follow.step(&v.list, window, cx);
     }
@@ -156,6 +157,7 @@ pub fn view(
                     stir_rail(v, dy, cx);
                     cx.notify();
                 }))
+                .child(wheel(cx))
                 // before any text, so selection knows this transcript's elements
                 .child(markdown::select::reset(surface.clone()))
                 .child(rows)
@@ -168,6 +170,39 @@ pub fn view(
         .children(model_menu(v, window, cx))
         .children(permission_menu(v, window, cx))
         .into_any_element()
+}
+
+/// Takes a mouse wheel's notches before the list sees them, so they glide instead of jumping a
+/// notch a frame. A touchpad's pixels and sideways scrolls go on to the list as they were.
+fn wheel(cx: &mut Context<TranscriptView>) -> AnyElement {
+    let view = cx.weak_entity();
+    gpui::canvas(
+        |bounds, window, _| window.insert_hitbox(bounds, gpui::HitboxBehavior::Normal),
+        move |_, hitbox, window, _| {
+            window.on_mouse_event(move |e: &ScrollWheelEvent, phase, window, cx| {
+                let gpui::ScrollDelta::Lines(lines) = e.delta else {
+                    return;
+                };
+                if phase != gpui::DispatchPhase::Capture
+                    || lines.x != 0.
+                    || lines.y == 0.
+                    || !hitbox.is_hovered(window)
+                {
+                    return;
+                }
+                let dy = px(20.) * lines.y;
+                cx.stop_propagation();
+                let _ = view.update(cx, |v, cx| {
+                    v.follow.spin(-dy);
+                    stir_rail(v, dy, cx);
+                    cx.notify();
+                });
+            });
+        },
+    )
+    .absolute()
+    .size_full()
+    .into_any_element()
 }
 
 fn edge_scroll(v: &mut TranscriptView, surface: &Arc<str>, window: &mut Window) {

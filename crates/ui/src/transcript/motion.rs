@@ -21,6 +21,8 @@ pub struct Follow {
     pub stick: bool,
     trip: Option<Trip>,
     last: Option<Instant>,
+    wheel: Pixels,
+    wheeled: Option<Instant>,
 }
 
 impl Default for Follow {
@@ -29,9 +31,13 @@ impl Default for Follow {
             stick: true,
             trip: None,
             last: None,
+            wheel: px(0.),
+            wheeled: None,
         }
     }
 }
+
+const EASE: f32 = 0.06;
 
 fn y(list: &ListState) -> Pixels {
     -list.scroll_px_offset_for_scrollbar().y
@@ -74,6 +80,7 @@ impl Follow {
 
     pub fn snap(&mut self, list: &ListState) {
         self.trip = None;
+        self.wheel = px(0.);
         self.stick = true;
         list.scroll_to_end();
     }
@@ -85,7 +92,45 @@ impl Follow {
         }
     }
 
+    /// A turn of the mouse wheel, eased out over the next frames. Positive scrolls down.
+    pub fn spin(&mut self, by: Pixels) {
+        self.trip = None;
+        if by < px(0.) {
+            self.stick = false;
+        }
+        self.wheel += by;
+    }
+
+    pub fn ease(&mut self, list: &ListState, window: &mut Window) {
+        if self.wheel == px(0.) {
+            self.wheeled = None;
+            return;
+        }
+        let now = Instant::now();
+        let dt = self
+            .wheeled
+            .replace(now)
+            .map_or(1. / 120., |t| (now - t).as_secs_f32().min(0.05));
+        let left = self.wheel;
+        let step = if !animations() || left.abs() < px(0.5) {
+            left
+        } else {
+            left * (1. - (-dt / EASE).exp())
+        };
+        let end = max(list);
+        let to = (y(list) + step).clamp(px(0.), end);
+        set(list, to);
+        // an end reached drops what is left, so the next turn answers at once
+        self.wheel = if to == px(0.) || to == end {
+            px(0.)
+        } else {
+            left - step
+        };
+        window.request_animation_frame();
+    }
+
     fn go(&mut self, list: &ListState, aim: Aim) {
+        self.wheel = px(0.);
         if !animations() {
             self.trip = None;
             match aim {

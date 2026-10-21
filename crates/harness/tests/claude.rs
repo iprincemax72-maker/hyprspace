@@ -581,15 +581,15 @@ async fn background_tasks_show_until_stopped() {
             _ => None,
         })
         .collect();
-    // the CLI's ambient watcher is not activity
+    // the CLI's ambient watcher is not activity, and the task's call comes after its listing
     assert_eq!(
-        lists,
-        [vec![Task {
+        lists.last().cloned(),
+        Some(vec![Task {
             id: "b1".into(),
             kind: TaskKind::Command,
             label: "Dev server".into(),
             tool: Some("tb".into()),
-        }]]
+        }])
     );
     session.stop_task("b1".into());
     let after = events

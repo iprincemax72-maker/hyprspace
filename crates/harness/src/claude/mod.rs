@@ -209,6 +209,7 @@ impl Harness for Claude {
             agents: HashMap::new(),
             nested: HashMap::new(),
             task_tools: HashMap::new(),
+            background: Vec::new(),
             context: 0,
             window: None,
         };
@@ -269,6 +270,8 @@ struct Actor {
     nested: HashMap<String, String>,
     /// Background tasks, to the tool call that started each.
     task_tools: HashMap<String, String>,
+    /// The background tasks as last sent.
+    background: Vec<Task>,
     /// Tokens the main thread's latest message saw and wrote.
     context: u64,
     /// The main model's context window, from the latest `result`.
@@ -510,8 +513,16 @@ impl Actor {
             "system" if v["subtype"] == "task_notification" => self.notified(&v),
             "system" if v["subtype"] == "task_started" => {
                 if let Some(tool) = v["tool_use_id"].as_str() {
-                    self.task_tools
-                        .insert(text(&v["task_id"]), tool.to_string());
+                    let id = text(&v["task_id"]);
+                    self.task_tools.insert(id.clone(), tool.to_string());
+                    // the CLI lists a task before it says which call started it
+                    let listed = self.background.iter_mut().find(|t| t.id == id);
+                    if let Some(t) = listed.filter(|t| t.tool.is_none()) {
+                        t.tool = Some(tool.to_string());
+                        (self.emit)(RunEvent::Background {
+                            tasks: self.background.clone(),
+                        });
+                    }
                 }
             }
             "system" if v["subtype"] == "background_tasks_changed" => {
@@ -519,6 +530,7 @@ impl Actor {
                 for t in &mut tasks {
                     t.tool = self.task_tools.get(&t.id).cloned();
                 }
+                self.background = tasks.clone();
                 (self.emit)(RunEvent::Background { tasks })
             }
             "control_response" if output_of(&v).is_some() => {

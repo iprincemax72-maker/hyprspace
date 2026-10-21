@@ -216,13 +216,13 @@ fn bgwedge() {
             "input": { "command": "npm run dev", "run_in_background": true } }] },
     }));
     emit(
-        json!({ "type": "system", "subtype": "task_started", "task_id": "b1",
-        "tool_use_id": call, "description": "Dev server", "task_type": "local_bash" }),
-    );
-    emit(
         json!({ "type": "system", "subtype": "background_tasks_changed", "tasks": [
         { "task_id": "b1", "task_type": "local_bash", "description": "Dev server" },
     ] }),
+    );
+    emit(
+        json!({ "type": "system", "subtype": "task_started", "task_id": "b1",
+        "tool_use_id": call, "description": "Dev server", "task_type": "local_bash" }),
     );
     emit(json!({
         "type": "user", "parent_tool_use_id": null,
@@ -264,14 +264,14 @@ fn bgtask() {
             "input": { "command": "npm run dev", "run_in_background": true } }] },
     }));
     emit(
-        json!({ "type": "system", "subtype": "task_started", "task_id": "b1",
-        "tool_use_id": "tb", "description": "Dev server", "task_type": "local_bash" }),
-    );
-    emit(
         json!({ "type": "system", "subtype": "background_tasks_changed", "tasks": [
         { "task_id": "b1", "task_type": "local_bash", "description": "Dev server" },
         watcher.clone(),
     ] }),
+    );
+    emit(
+        json!({ "type": "system", "subtype": "task_started", "task_id": "b1",
+        "tool_use_id": "tb", "description": "Dev server", "task_type": "local_bash" }),
     );
     emit(json!({
         "type": "user", "parent_tool_use_id": null,

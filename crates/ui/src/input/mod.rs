@@ -126,6 +126,8 @@ pub struct TextInput {
     revealed: (usize, usize),
     thumb: Option<Bounds<Pixels>>,
     grab: Option<Pixels>,
+    /// How far a single line is slid left to keep the cursor in the box.
+    shift: Pixels,
 }
 
 impl EventEmitter<InputEvent> for TextInput {}
@@ -154,6 +156,7 @@ impl TextInput {
             revealed: (0, 0),
             thumb: None,
             grab: None,
+            shift: Pixels::ZERO,
         }
     }
 
@@ -293,7 +296,7 @@ impl TextInput {
             let end = start + line.len();
             if offset <= end && offset >= *start {
                 let p = line.position_for_index(offset - start, self.line_height)?;
-                return Some(point(p.x, p.y + y));
+                return Some(point(p.x - self.shift, p.y + y));
             }
             y += self.line_height * (line.wrap_boundaries().len() + 1) as f32;
         }
@@ -309,7 +312,7 @@ impl TextInput {
         for (start, line) in &self.layout {
             let height = self.line_height * (line.wrap_boundaries().len() + 1) as f32;
             if pos.y < y + height {
-                let local = point(pos.x.max(Pixels::ZERO), pos.y - y);
+                let local = point((pos.x + self.shift).max(Pixels::ZERO), pos.y - y);
                 let ix = line
                     .closest_index_for_position(local, self.line_height)
                     .unwrap_or_else(|i| i);

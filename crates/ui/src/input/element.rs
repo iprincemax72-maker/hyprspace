@@ -3,9 +3,9 @@
 // arrow keys can map between offsets and positions.
 
 use gpui::{
-    App, AvailableSpace, Bounds, ElementId, ElementInputHandler, Entity, GlobalElementId, LayoutId,
-    PaintQuad, Pixels, ScrollHandle, SharedString, Style, TextRun, TextStyle, UnderlineStyle,
-    Window, WrappedLine, fill, point, prelude::*, relative, size,
+    App, AvailableSpace, Bounds, ContentMask, ElementId, ElementInputHandler, Entity,
+    GlobalElementId, LayoutId, PaintQuad, Pixels, ScrollHandle, SharedString, Style, TextRun,
+    TextStyle, UnderlineStyle, Window, WrappedLine, fill, point, prelude::*, relative, size,
 };
 
 use super::TextInput;
@@ -169,6 +169,26 @@ impl Element for TextElement {
         let lh = window.line_height();
         let empty = input.content.is_empty();
         let (sel, cursor) = (input.selected.clone(), input.cursor());
+        let shift = match lines.first() {
+            Some((_, line)) if !input.multiline && !empty => {
+                let width = bounds.size.width;
+                let at = line
+                    .position_for_index(cursor, lh)
+                    .map_or(Pixels::ZERO, |p| p.x);
+                let mut shift = input.shift;
+                if at < shift {
+                    shift = at;
+                } else if at + px(2.) > shift + width {
+                    shift = at + px(2.) - width;
+                }
+                shift.min((line.width() + px(2.) - width).max(Pixels::ZERO))
+            }
+            _ => Pixels::ZERO,
+        };
+        if shift != input.shift {
+            self.input.update(cx, |input, _| input.shift = shift);
+        }
+        let input = self.input.read(cx);
 
         // where an offset lands, in window coordinates, using the fresh layout
         let pos = |offset: usize| {
@@ -176,7 +196,7 @@ impl Element for TextElement {
             for (start, line) in &lines {
                 if offset >= *start && offset <= start + line.len() {
                     let p = line.position_for_index(offset - start, lh)?;
-                    return Some(point(bounds.left() + p.x, y + p.y));
+                    return Some(point(bounds.left() + p.x - shift, y + p.y));
                 }
                 y += lh * (line.wrap_boundaries().len() + 1) as f32;
             }
@@ -266,31 +286,40 @@ impl Element for TextElement {
             ElementInputHandler::new(bounds, self.input.clone()),
             cx,
         );
-        for quad in prepaint.selection.drain(..) {
-            window.paint_quad(quad);
-        }
-        let lh = window.line_height();
-        let seen = window.content_mask().bounds;
-        let mut y = bounds.top();
-        for (_, line) in &prepaint.lines {
-            let h = lh * (line.wrap_boundaries().len() + 1) as f32;
-            if y + h >= seen.top() && y <= seen.bottom() {
-                let _ = line.paint(
-                    point(bounds.left(), y),
-                    lh,
-                    gpui::TextAlign::Left,
-                    None,
-                    window,
-                    cx,
-                );
+        let (multiline, shift) = {
+            let input = self.input.read(cx);
+            (input.multiline, input.shift)
+        };
+        // a slid single line clips to the box; a multiline one sits in its own scroll area
+        let mask = (!multiline).then_some(ContentMask { bounds });
+        window.with_content_mask(mask, |window| {
+            for quad in prepaint.selection.drain(..) {
+                window.paint_quad(quad);
             }
-            y += h;
-        }
-        if focus.is_focused(window)
-            && let Some(cursor) = prepaint.cursor.take()
-        {
-            window.paint_quad(cursor);
-        }
+            let lh = window.line_height();
+            let seen = window.content_mask().bounds;
+            let mut y = bounds.top();
+            for (_, line) in &prepaint.lines {
+                let h = lh * (line.wrap_boundaries().len() + 1) as f32;
+                if y + h >= seen.top() && y <= seen.bottom() {
+                    let _ = line.paint(
+                        point(bounds.left() - shift, y),
+                        lh,
+                        gpui::TextAlign::Left,
+                        None,
+                        window,
+                        cx,
+                    );
+                }
+                y += h;
+            }
+            if focus.is_focused(window)
+                && let Some(cursor) = prepaint.cursor.take()
+            {
+                window.paint_quad(cursor);
+            }
+        });
+        let lh = window.line_height();
         let input = self.input.read(cx);
         let thumb = input.multiline.then(|| thumb(&input.scroll)).flatten();
         if let Some(t) = thumb {

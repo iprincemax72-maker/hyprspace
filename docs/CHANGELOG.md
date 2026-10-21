@@ -4,6 +4,10 @@ Release notes for HyprSpace. Written **at ship time** — when you ask to ship, 
 changed since the last release and writes a few user-facing bullets; `deploy.ps1` records them here
 and uses them as the release notes + the in-app "What's new" notification. No per-task bookkeeping.
 
+## 0.24.27 — 2026-10-21
+
+- Web addresses in replies are links you can click
+
 ## 0.24.26 — 2026-10-21
 
 - Smoother scrolling with the mouse wheel

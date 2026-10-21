@@ -77,7 +77,9 @@ STAGE="$OUT/dmg"
 rm -rf "$STAGE" && mkdir -p "$STAGE"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
-hdiutil create -volname HyprSpace -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+# hdiutil's own size guess runs short now and then ("No space left on device"), so give it room
+SIZE_MB=$(( $(du -sm "$STAGE" | cut -f1) * 13 / 10 + 20 ))
+hdiutil create -volname HyprSpace -srcfolder "$STAGE" -size "${SIZE_MB}m" -ov -format UDZO "$DMG"
 rm -rf "$STAGE"
 if [[ -n "$IDENTITY" ]]; then
   codesign --force --timestamp --sign "$IDENTITY" "$DMG"

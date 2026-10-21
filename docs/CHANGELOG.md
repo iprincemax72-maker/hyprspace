@@ -4,6 +4,15 @@ Release notes for HyprSpace. Written **at ship time** — when you ask to ship, 
 changed since the last release and writes a few user-facing bullets; `deploy.ps1` records them here
 and uses them as the release notes + the in-app "What's new" notification. No per-task bookkeeping.
 
+## 0.24.26 — 2026-10-21
+
+- Smoother scrolling with the mouse wheel
+- Background tasks link to the tool call that started them
+- Long text in one-line boxes slides to follow the cursor
+- A picture behind the new thread screen: 28 built-in wallpapers or a folder of your own, with effects, a theme taken from the picture, and glass
+- Approvals ask in a smaller card, and Codex commands show without their PowerShell wrapper
+- A new logo, and the default theme trades its blue for a neutral accent
+
 ## 0.24.25 — 2026-10-20
 
 - Clicking a tick on the prompt rail lands on that prompt, even in threads that have been open a long time.

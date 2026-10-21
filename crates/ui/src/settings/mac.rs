@@ -98,12 +98,12 @@ impl Root {
             vec![
                 row(
                     "Screen recording",
-                    "Lets agents take screenshots. macOS may ask you to reopen HyprSpace.",
+                    "Lets agents, and anything run in a HyprSpace terminal, see the whole screen. macOS may ask you to reopen HyprSpace.",
                     control("allow-screen", screen_allowed(), ask_screen),
                 ),
                 row(
                     "Accessibility",
-                    "Lets agents click, type and read other apps from scripts.",
+                    "Lets them click, type and read any app on this Mac.",
                     control(
                         "allow-accessibility",
                         accessibility_allowed(),

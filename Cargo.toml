@@ -58,6 +58,8 @@ unicode-segmentation = "1"
 # a pasted bitmap saved as png for the agents (ui/src/attach.rs); gpui already builds this crate
 # local clock times and days for Settings' Usage (ui/src/usage); gpui already builds this crate
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# Codex reports a command as one shell-quoted line (harness/src/codex/items.rs)
+shlex = "1.3"
 image = { version = "0.25", default-features = false, features = ["png", "bmp", "jpeg", "gif", "webp"] }
 
 [profile.dev]

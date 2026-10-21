@@ -10,6 +10,32 @@ fn text(v: &Value) -> String {
     v.as_str().unwrap_or_default().to_string()
 }
 
+/// Codex runs a command through a shell and reports the whole call, `"C:\...\powershell.exe"
+/// -Command 'cargo test'`, quoted again so every backslash doubles. The agent wrote `cargo test`.
+pub(crate) fn command(v: &Value) -> String {
+    let line = text(v);
+    let Some(args) = shlex::split(&line) else {
+        return line;
+    };
+    let shell = args.first().map(|a| {
+        a.rsplit(['\\', '/'])
+            .next()
+            .unwrap_or_default()
+            .trim_end_matches(".exe")
+            .to_ascii_lowercase()
+    });
+    let wrapped = matches!(
+        shell.as_deref(),
+        Some("powershell" | "pwsh" | "bash" | "zsh" | "sh")
+    );
+    match args.as_slice() {
+        [.., flag, inner] if wrapped && ["-Command", "-c", "-lc"].contains(&flag.as_str()) => {
+            inner.clone()
+        }
+        _ => line,
+    }
+}
+
 fn change(c: &Value) -> FileChange {
     // `kind` is `{ "type": "add" }` now and was a bare string in older builds
     let kind = c["kind"]["type"].as_str().or(c["kind"].as_str());
@@ -29,7 +55,7 @@ fn change(c: &Value) -> FileChange {
 pub(crate) fn tool(item: &Value) -> Option<Tool> {
     Some(match item["type"].as_str()? {
         "commandExecution" => Tool::Command {
-            command: text(&item["command"]),
+            command: command(&item["command"]),
         },
         "fileChange" => Tool::Edit {
             changes: item["changes"]
@@ -96,6 +122,21 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn a_command_loses_the_shell_codex_wraps_it_in() {
+        let windows = json!(
+            r#""C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -Command 'cargo fmt --all --check; git log -1 --format='"'"'%h'"'"''"#
+        );
+        assert_eq!(
+            command(&windows),
+            "cargo fmt --all --check; git log -1 --format='%h'"
+        );
+        let mac = json!("/bin/zsh -lc 'ls -la'");
+        assert_eq!(command(&mac), "ls -la");
+        let plain = json!(r"dir C:\Users");
+        assert_eq!(command(&plain), r"dir C:\Users");
+    }
 
     #[test]
     fn maps_tool_items() {

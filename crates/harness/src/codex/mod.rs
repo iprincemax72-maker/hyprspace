@@ -460,7 +460,7 @@ impl Actor {
         crate::protocol::codex(method);
         let tool = match method {
             "item/commandExecution/requestApproval" => Tool::Command {
-                command: text(&params["command"]),
+                command: items::command(&params["command"]),
             },
             "item/fileChange/requestApproval" => self
                 .tools

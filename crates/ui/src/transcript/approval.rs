@@ -6,8 +6,8 @@ use hyprspace_proto::{Answer, Tool};
 
 use super::{TranscriptView, tool};
 use crate::assets::icon;
+use crate::colors;
 use crate::zoom::px;
-use crate::{colors, widgets};
 
 #[allow(clippy::too_many_arguments)]
 pub fn card(
@@ -29,45 +29,36 @@ pub fn card(
         }
         _ => {}
     }
-    let pending = answer.is_none() && !expired;
+    if answer.is_some() || expired {
+        return answered(t, answer);
+    }
     let detail = match t {
         Tool::Edit { changes } => Some(tool::diffs(changes)),
         _ => tool::input(t).map(|i| tool::mono(&i)),
     };
-    let (mark, tint) = match (answer, expired) {
-        (None, false) => ("hand", colors::waiting()),
-        (Some(Answer::Deny), _) => ("x", colors::error()),
-        (Some(_), _) => ("check", colors::ok()),
-        (None, true) => ("clock", colors::text3()),
-    };
-    let state = match (answer, expired) {
-        (Some(Answer::Allow), _) => Some("Allowed"),
-        (Some(Answer::AllowAlways), _) => Some("Allowed for this session"),
-        (Some(Answer::Deny), _) => Some("Denied"),
-        (None, true) => Some("Not answered"),
-        (None, false) => None,
-    };
-    let buttons = pending.then(|| {
-        let button = |id: &'static str, label: &'static str, a: Answer, main: bool| {
-            let request = request.to_string();
-            let b = if main {
-                widgets::primary((id, v.id.0), label)
-            } else {
-                widgets::button((id, v.id.0), label).h(px(26.)).px(px(10.))
-            };
-            b.on_click(
-                cx.listener(move |v, _: &ClickEvent, _, cx| v.answer(request.clone(), a, cx)),
-            )
-        };
-        div()
+    let button = |id: &'static str, label: &'static str, a: Answer, main: bool| {
+        let request = request.to_string();
+        let b = div()
+            .id((id, v.id.0))
             .flex()
-            .gap_2()
-            .child(button("allow", "Allow", Answer::Allow, true))
-            .when(always, |d| {
-                d.child(button("always", "Always allow", Answer::AllowAlways, false))
-            })
-            .child(button("deny", "Deny", Answer::Deny, false))
-    });
+            .items_center()
+            .h(px(26.))
+            .px(px(10.))
+            .rounded(px(6.))
+            .text_size(px(12.))
+            .font_weight(FontWeight::MEDIUM)
+            .cursor_pointer()
+            .child(label);
+        let b = if main {
+            b.bg(colors::text1())
+                .text_color(colors::bg())
+                .hover(|s| s.bg(colors::text1().opacity(0.85)))
+        } else {
+            b.text_color(colors::text2())
+                .hover(|s| s.bg(colors::ink(0.06)).text_color(colors::text1()))
+        };
+        b.on_click(cx.listener(move |v, _: &ClickEvent, _, cx| v.answer(request.clone(), a, cx)))
+    };
     div()
         .flex()
         .flex_col()
@@ -75,34 +66,22 @@ pub fn card(
         .px(px(14.))
         .py(px(12.))
         .rounded(px(12.))
-        .bg(if pending {
-            colors::waiting().opacity(0.08)
-        } else {
-            colors::ink(0.035)
-        })
+        .bg(colors::ink(0.035))
+        .border_1()
+        .border_color(colors::ink(0.08))
         .child(
             div()
                 .flex()
                 .items_center()
                 .gap(px(8.))
-                .child(icon(mark, 14., tint))
+                .child(icon("hand", 14., colors::text2()))
                 .child(
                     div()
-                        .flex_1()
-                        .min_w_0()
-                        .truncate()
                         .text_size(px(13.))
                         .font_weight(FontWeight::MEDIUM)
                         .text_color(colors::text1())
-                        .child(tool::label(t)),
-                )
-                .children(state.map(|s| {
-                    div()
-                        .flex_none()
-                        .text_size(px(12.))
-                        .text_color(colors::text3())
-                        .child(s)
-                })),
+                        .child(ask(t)),
+                ),
         )
         .children(reason.map(|r| {
             div()
@@ -111,6 +90,61 @@ pub fn card(
                 .child(r.to_string())
         }))
         .children(detail)
-        .children(buttons)
+        .child(
+            div()
+                .flex()
+                .justify_end()
+                .gap_2()
+                .child(button("deny", "Deny", Answer::Deny, false))
+                .when(always, |d| {
+                    d.child(button("always", "Always allow", Answer::AllowAlways, false))
+                })
+                .child(button("allow", "Allow", Answer::Allow, true)),
+        )
+        .into_any_element()
+}
+
+fn ask(t: &Tool) -> String {
+    match t {
+        Tool::Command { .. } => "Run this command?".into(),
+        Tool::Edit { changes } if changes.len() == 1 => "Make this edit?".into(),
+        Tool::Edit { .. } => "Make these edits?".into(),
+        Tool::Mcp { server, tool, .. } if tool.is_empty() => format!("{server} is asking"),
+        _ => format!("{}?", tool::label(t)),
+    }
+}
+
+fn answered(t: &Tool, answer: Option<Answer>) -> AnyElement {
+    let (mark, tint, state) = match answer {
+        Some(Answer::Allow) => ("check", colors::ok(), "Allowed"),
+        Some(Answer::AllowAlways) => ("check", colors::ok(), "Allowed for this session"),
+        Some(Answer::Deny) => ("x", colors::error(), "Denied"),
+        None => ("clock", colors::text3(), "Not answered"),
+    };
+    div()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .px(px(12.))
+        .py(px(8.))
+        .rounded(px(10.))
+        .bg(colors::ink(0.035))
+        .child(icon(mark, 13., tint))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .truncate()
+                .text_size(px(12.5))
+                .text_color(colors::text2())
+                .child(tool::label(t)),
+        )
+        .child(
+            div()
+                .flex_none()
+                .text_size(px(12.))
+                .text_color(colors::text3())
+                .child(state),
+        )
         .into_any_element()
 }

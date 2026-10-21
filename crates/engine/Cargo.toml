@@ -19,6 +19,7 @@ portable-pty.workspace = true
 reqwest.workspace = true
 base64.workspace = true
 alacritty_terminal.workspace = true
+image.workspace = true
 
 # the phone bridge (phone/): TLS under a certificate made on this machine, which the phone pins,
 # and a WebSocket over it. aws-lc-rs because rustls already builds it for reqwest

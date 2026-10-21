@@ -13,7 +13,7 @@ use crate::peer::{PeerCommand, PeerEvent};
 use crate::phone::{PhoneCommand, PhoneEvent};
 use crate::run::{Answer, Delegation, Launch, Prompt, RunEvent};
 use crate::skills::{SkillCommand, SkillEvent};
-use crate::state::{AppState, Entry};
+use crate::state::{AppState, Background, Effect, Entry};
 use crate::update::{UpdateCommand, UpdateEvent};
 use crate::usage::{UsageCommand, UsageEvent};
 
@@ -172,6 +172,28 @@ pub enum Command {
     },
     /// The file tree, the git tab, the viewer and the open-in actions (`folder.rs`).
     Folder(FolderCommand),
+    /// Copy a picture in as the new-thread background, answered with `Event::Background`.
+    SetBackground {
+        source: PathBuf,
+        effect: Effect,
+    },
+    /// One of the app's own pictures as the background, by its title and contents.
+    SetBuiltIn {
+        name: String,
+        bytes: Vec<u8>,
+        effect: Effect,
+    },
+    /// Draw `background` again with `effect`.
+    Restyle {
+        background: Background,
+        effect: Effect,
+    },
+    /// Pick another picture from `folder`, not the one named `skip`.
+    Shuffle {
+        folder: PathBuf,
+        skip: Option<String>,
+        effect: Effect,
+    },
     /// Live limits and local usage for the meter and Settings (`usage.rs`).
     Usage(UsageCommand),
     /// Settings' Skills view (`skills.rs`).
@@ -259,7 +281,7 @@ pub enum Event {
     /// The saved state, or the default on a first run. A file that would not parse was moved
     /// aside first, so nothing is lost by saving over it.
     State {
-        state: AppState,
+        state: Box<AppState>,
     },
     Agents {
         agents: Vec<AgentInfo>,
@@ -280,6 +302,8 @@ pub enum Event {
         result: Result<PathBuf, String>,
     },
     Folder(FolderEvent),
+    /// A background ready to show, or why it couldn't be.
+    Background(Result<Background, String>),
     Usage(UsageEvent),
     Skills(SkillEvent),
     Update(UpdateEvent),
@@ -418,6 +442,15 @@ mod tests {
                 stage: true,
             }),
             Command::Folder(FolderCommand::Openers),
+            Command::SetBackground {
+                source: "C:/pics/sea.jpg".into(),
+                effect: Effect::Dither,
+            },
+            Command::Shuffle {
+                folder: "C:/pics".into(),
+                skip: Some("sea.jpg".into()),
+                effect: Effect::None,
+            },
             Command::Usage(UsageCommand::Live {
                 agent: Agent::Claude,
             }),

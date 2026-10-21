@@ -10,7 +10,7 @@ use gpui::{
     linear_color_stop, linear_gradient, prelude::*,
 };
 use hyprspace_proto::state::{Appearance, DiffColors, Scheme};
-use hyprspace_theme::{SANS, TERM, THEMES, ThemeInfo};
+use hyprspace_theme::{SANS, TERM, THEMES};
 
 use super::controls::{group, row, step};
 use super::{Picker, Root};
@@ -180,11 +180,36 @@ impl Root {
             })
             .collect();
         let dark = colors::theme().dark;
-        let cards: Vec<_> = THEMES
+        let mut cards: Vec<_> = THEMES
             .iter()
             .enumerate()
-            .map(|(i, t)| self.theme_card(i, t, t.id == current.theme, dark, cx))
+            .map(|(i, t)| {
+                let id = t.id;
+                self.theme_card(
+                    i,
+                    id,
+                    t.name,
+                    t.blurb,
+                    id == current.theme,
+                    dark,
+                    move |d| hyprspace_theme::build(id, d),
+                    cx,
+                )
+            })
             .collect();
+        if let Some(b) = &current.background {
+            let (hue, chroma) = (b.hue as f64, b.chroma as f64);
+            cards.push(self.theme_card(
+                THEMES.len(),
+                colors::WALLPAPER,
+                "From wallpaper",
+                "Background",
+                current.theme == colors::WALLPAPER,
+                dark,
+                move |d| hyprspace_theme::from_color(hue, chroma, d),
+                cx,
+            ));
+        }
 
         let size = current.terminal_font_size.clamp(MIN_SIZE, MAX_SIZE);
         let size_stepper = stepper(
@@ -275,6 +300,7 @@ impl Root {
                     )
                     .child(div().grid().grid_cols(3).gap(px(12.)).children(cards)),
             )
+            .child(self.background_group(cx))
             .child(group(
                 "Interface",
                 vec![
@@ -325,17 +351,20 @@ impl Root {
 
     /// A theme's card: a swatch for each side, the one showing ringed, then the name and a word
     /// on it. The card picks the theme; a swatch picks the theme and that side.
+    #[allow(clippy::too_many_arguments)]
     fn theme_card(
         &self,
         i: usize,
-        t: &ThemeInfo,
+        id: &'static str,
+        name: &'static str,
+        blurb: &'static str,
         on: bool,
         dark: bool,
+        make: impl Fn(bool) -> hyprspace_theme::Theme,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let id = t.id;
         let orb = |side_dark: bool| {
-            let th = hyprspace_theme::build(id, side_dark);
+            let th = make(side_dark);
             let (bg, accent) = (colors::hsla(th.bg), colors::hsla(th.accent));
             let lit = on && dark == side_dark;
             let scheme = if side_dark {
@@ -435,14 +464,14 @@ impl Root {
                             .text_size(px(13.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .text_color(colors::text1())
-                            .child(t.name),
+                            .child(name),
                     )
                     .child(
                         div()
                             .truncate()
                             .text_size(px(11.))
                             .text_color(colors::text3())
-                            .child(t.blurb),
+                            .child(blurb),
                     ),
             )
             .on_click(cx.listener(move |r, _: &ClickEvent, window, cx| {
@@ -456,7 +485,7 @@ impl Root {
 }
 
 /// A value between a minus and a plus button.
-fn stepper(value: String, less: AnyElement, more: AnyElement) -> Div {
+pub(super) fn stepper(value: String, less: AnyElement, more: AnyElement) -> Div {
     div()
         .flex()
         .items_center()

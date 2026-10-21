@@ -20,12 +20,21 @@ thread_local! {
 // terminals parse their output off the main thread, and answer color queries from there
 static SHARED: RwLock<Option<Theme>> = RwLock::new(None);
 
+/// The theme id taken from the background picture's main color.
+pub const WALLPAPER: &str = "wallpaper";
+
 /// Switches to theme `id` on its dark or light side, with blue and orange for added and removed
-/// lines when `blue_orange`.
-pub fn set(id: &str, dark: bool, blue_orange: bool) {
-    let mut t = build(id, dark);
+/// lines when `blue_orange`. `picture` is the background's hue and chroma, for `WALLPAPER`.
+pub fn set(id: &str, dark: bool, blue_orange: bool, picture: Option<(f32, f32)>, glass: bool) {
+    let mut t = match picture.filter(|_| id == WALLPAPER) {
+        Some((hue, chroma)) => hyprspace_theme::from_color(hue as f64, chroma as f64, dark),
+        None => build(id, dark),
+    };
     if blue_orange {
         (t.diff_add, t.diff_del) = hyprspace_theme::blue_orange(dark);
+    }
+    if glass {
+        t = hyprspace_theme::glass(t);
     }
     CURRENT.with(|c| c.set(t));
     *SHARED.write().unwrap_or_else(|e| e.into_inner()) = Some(t);
@@ -165,15 +174,29 @@ mod tests {
 
     #[test]
     fn follows_the_theme_it_is_set_to() {
-        set("t3", true, false);
+        set("t3", true, false, None, false);
         assert!((border2().a - 0x1a as f32 / 255.0).abs() < 0.01);
         assert_eq!(bg().a, 1.0);
         let dark_text = text1();
-        set("t3", false, false);
+        set("t3", false, false, None, false);
         assert_ne!(text1(), dark_text);
-        set("iris", true, false);
+        set("iris", true, false, None, false);
         assert_ne!(accent(), hsla(build("t3", true).accent));
-        set("t3", true, false);
+        set("t3", true, false, None, false);
+    }
+
+    #[test]
+    fn the_wallpaper_theme_follows_the_picture_and_glass_lets_the_desktop_through() {
+        set(WALLPAPER, true, false, Some((150.0, 0.15)), false);
+        assert_eq!(
+            accent(),
+            hsla(hyprspace_theme::from_color(150.0, 0.15, true).accent)
+        );
+        set(WALLPAPER, true, false, None, false);
+        assert_eq!(accent(), hsla(build("t3", true).accent));
+        set("t3", true, false, None, true);
+        assert!(bg().a < 1.0 && surface2().a == 1.0);
+        set("t3", true, false, None, false);
     }
 
     #[test]

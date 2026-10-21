@@ -90,7 +90,27 @@ pub fn blue_orange(dark: bool) -> (Color, Color) {
 
 pub fn build(id: &str, dark: bool) -> Theme {
     let t = THEMES.iter().find(|t| t.id == id).unwrap_or(&THEMES[0]);
-    let (hue, tint) = (t.hue, t.tint);
+    make(t.hue, t.tint, if dark { t.dark } else { t.light }, dark)
+}
+
+/// The theme taken from a picture's main color: its hue, with a grey picture kept near neutral.
+pub fn from_color(hue: f64, chroma: f64, dark: bool) -> Theme {
+    let accent = (chroma * 1.3).clamp(0.05, 0.2);
+    let tint = if chroma < 0.03 { 0.004 } else { 0.012 };
+    let side = if dark { (0.68, accent) } else { (0.5, accent) };
+    make(hue, tint, side, dark)
+}
+
+/// The window's own surfaces see-through, for a window the system blurs the desktop behind.
+pub fn glass(mut t: Theme) -> Theme {
+    let a = if t.dark { 0.62 } else { 0.7 };
+    t.bg = t.bg.a(a);
+    t.surface1 = t.surface1.a(a);
+    t.term_bg = t.term_bg.a(a + 0.12);
+    t
+}
+
+fn make(hue: f64, tint: f64, (al, ac): (f64, f64), dark: bool) -> Theme {
     // white text on a deep accent, near-black text on a bright one
     let on_accent = |l: f64| {
         if l >= 0.66 {
@@ -101,7 +121,6 @@ pub fn build(id: &str, dark: bool) -> Theme {
     };
     let status = Status::default();
     if dark {
-        let (al, ac) = t.dark;
         let ink = WHITE;
         Theme {
             dark,
@@ -137,7 +156,6 @@ pub fn build(id: &str, dark: bool) -> Theme {
             syntax: syntax::derive(hue, tint, true),
         }
     } else {
-        let (al, ac) = t.light;
         let ink = BLACK;
         Theme {
             dark,

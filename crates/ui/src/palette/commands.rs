@@ -35,6 +35,7 @@ pub enum Cmd {
     Settings,
     SettingsTab(Tab),
     Intro,
+    ShuffleWallpaper,
 }
 
 impl Root {
@@ -155,6 +156,12 @@ impl Root {
                 .sub(t.blurb),
             );
         }
+        out.push(Item::new(
+            "Theme",
+            "Shuffle wallpaper",
+            Glyph::Icon("image-plus"),
+            Cmd::ShuffleWallpaper,
+        ));
         if let Some(folder) = space.and_then(|s| self.state.space(s)?.cwd.clone()) {
             for o in &self.work.openers {
                 out.push(
@@ -364,6 +371,7 @@ impl Root {
             Cmd::Settings => self.open_settings(window, cx),
             Cmd::SettingsTab(tab) => self.open_settings_at(tab, window, cx),
             Cmd::Intro => self.show_intro(window, cx),
+            Cmd::ShuffleWallpaper => self.shuffle_background(cx),
         }
         cx.notify();
     }

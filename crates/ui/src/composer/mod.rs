@@ -731,11 +731,13 @@ impl Render for Composer {
             });
         div()
             .id("composer")
+            .relative()
             .size_full()
             .flex()
             .flex_col()
             .items_center()
             .bg(colors::bg())
+            .children(crate::wallpaper::hero())
             .text_color(colors::text1())
             .on_drop(
                 cx.listener(|c, paths: &ExternalPaths, window, cx| c.drop_paths(paths, window, cx)),

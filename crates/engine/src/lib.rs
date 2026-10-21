@@ -5,6 +5,7 @@
 //! The library modules (git, usage, skills...) were copied from the Tauri app's Rust and are
 //! called directly for now; each gains a command in proto when the UI first needs it.
 
+mod background;
 pub mod delegate;
 pub mod env;
 mod folder;
@@ -498,6 +499,52 @@ async fn serve(
                     ));
                 });
             }
+            Command::SetBackground { source, effect } => {
+                let tx = tx.clone();
+                tokio::task::spawn_blocking(move || {
+                    let dir = persist::state_dir().join("backgrounds");
+                    let _ = tx
+                        .unbounded_send(Event::Background(background::set(&dir, &source, effect)));
+                });
+            }
+            Command::SetBuiltIn {
+                name,
+                bytes,
+                effect,
+            } => {
+                let tx = tx.clone();
+                tokio::task::spawn_blocking(move || {
+                    let dir = persist::state_dir().join("backgrounds");
+                    let _ = tx.unbounded_send(Event::Background(background::set_bytes(
+                        &dir, &name, &bytes, effect,
+                    )));
+                });
+            }
+            Command::Restyle { background, effect } => {
+                let tx = tx.clone();
+                tokio::task::spawn_blocking(move || {
+                    let dir = persist::state_dir().join("backgrounds");
+                    let _ = tx.unbounded_send(Event::Background(background::restyle(
+                        &dir, background, effect,
+                    )));
+                });
+            }
+            Command::Shuffle {
+                folder,
+                skip,
+                effect,
+            } => {
+                let tx = tx.clone();
+                tokio::task::spawn_blocking(move || {
+                    let dir = persist::state_dir().join("backgrounds");
+                    let _ = tx.unbounded_send(Event::Background(background::shuffle(
+                        &dir,
+                        &folder,
+                        skip.as_deref(),
+                        effect,
+                    )));
+                });
+            }
             Command::Usage(cmd) => usage::handle(cmd, tx.clone()),
             Command::Skills(cmd) => skills::handle(cmd, tx.clone()),
             Command::Update(cmd) => update::handle(cmd, tx.clone()),
@@ -605,7 +652,7 @@ mod tests {
             let events = forward(events);
             client.send(Command::LoadState);
             match events.recv_timeout(wait).unwrap() {
-                Event::State { state: s } => assert_eq!(s, AppState::default()),
+                Event::State { state: s } => assert_eq!(*s, AppState::default()),
                 other => panic!("unexpected {other:?}"),
             }
             client.send(Command::SaveState {
@@ -633,7 +680,7 @@ mod tests {
         let events = forward(events);
         client.send(Command::LoadState);
         match events.recv_timeout(wait).unwrap() {
-            Event::State { state: s } => assert_eq!(s, state),
+            Event::State { state: s } => assert_eq!(*s, state),
             other => panic!("unexpected {other:?}"),
         }
         engine.shutdown();
@@ -747,7 +794,7 @@ Fix it.
         let events = forward(events);
         client.send(Command::LoadState);
         match events.recv_timeout(Duration::from_secs(10)).unwrap() {
-            Event::State { state } => assert_eq!(state, hyprspace_proto::AppState::default()),
+            Event::State { state } => assert_eq!(*state, hyprspace_proto::AppState::default()),
             other => panic!("unexpected {other:?}"),
         }
         engine.shutdown();

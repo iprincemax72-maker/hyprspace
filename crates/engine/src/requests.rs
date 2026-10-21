@@ -66,7 +66,12 @@ impl Requests {
             }
             Err(_) => AppState::default(),
         };
-        Self::send(&self.tx, Event::State { state });
+        Self::send(
+            &self.tx,
+            Event::State {
+                state: Box::new(state),
+            },
+        );
     }
 
     /// Runs on the command loop so saves land in the order they were sent.

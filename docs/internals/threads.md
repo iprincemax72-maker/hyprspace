@@ -18,6 +18,16 @@ thread or terminal takes the main area. There are no tiles, layouts or "open bes
 - `proto::Grid` is gone. A state file that still has `grid` loads; serde skips the field. `Pane`
   stays: a dragged sidebar row carries one, and the viewer shows `Pane::File` and `Pane::Diff`.
 
+## Background and glass
+
+- **The background is the engine's copy.** Picking a picture or shuffling the wallpaper folder
+  sends it to the engine, which copies it into `backgrounds/` in the state folder, takes its main
+  color (oklch, favoring colorful pixels) for the "From wallpaper" theme, and draws the chosen
+  effect into a second file. Only the current picture's files stay; the rest are deleted.
+- **Glass makes the window's own surfaces see-through** (`hyprspace_theme::glass`) and asks the
+  system to blur the desktop behind the window. Anything that paints `colors::bg()` to cover what
+  is under it shows through under glass; cover with `surface2` or `surface3` instead.
+
 ## A space is a folder
 
 There is one kind of space, one folder. "New thread" asks for a folder, reuses that folder's space

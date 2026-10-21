@@ -2748,6 +2748,7 @@ dependencies = [
  "hyprspace-proto",
  "hyprspace-update",
  "if-addrs",
+ "image",
  "mdns-sd",
  "notify",
  "portable-pty",

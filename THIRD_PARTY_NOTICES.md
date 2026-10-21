@@ -107,6 +107,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## Omarchy (wallpapers)
+
+The built-in wallpapers in `crates/ui/assets/wallpapers/` are taken from the theme backgrounds of
+[Omarchy](https://github.com/basecamp/omarchy) (MIT, Copyright (c) David Heinemeier Hansson),
+resized to 2560 pixels wide and converted to WebP. Omarchy does not name the source of each
+picture; the artwork belongs to its artists.
+
 ## Lucide
 
 The icons in `crates/ui/assets/icons/` are from [Lucide](https://lucide.dev) (lucide-react

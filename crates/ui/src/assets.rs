@@ -153,7 +153,8 @@ impl AssetSource for Assets {
         Ok(FILES
             .iter()
             .find(|(p, _)| *p == path)
-            .map(|(_, bytes)| Cow::Borrowed(*bytes)))
+            .map(|(_, bytes)| Cow::Borrowed(*bytes))
+            .or_else(|| crate::wallpaper::thumb(path).map(Cow::Borrowed)))
     }
 
     fn list(&self, path: &str) -> gpui::Result<Vec<SharedString>> {

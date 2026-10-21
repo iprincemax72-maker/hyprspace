@@ -28,6 +28,7 @@ mod transcript;
 mod update;
 mod usage;
 mod viewer;
+mod wallpaper;
 mod widgets;
 mod workbench;
 mod zoom;

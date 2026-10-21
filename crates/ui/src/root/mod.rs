@@ -171,6 +171,10 @@ pub struct Root {
     /// The command palette while it is open (`crate::palette`).
     pub(crate) palette: Option<Entity<crate::palette::Palette>>,
     pub(crate) finding: u64,
+    pub(crate) background_busy: bool,
+    pub(crate) background_error: Option<String>,
+    /// Where a drag on the background preview started, and the picture's focus then.
+    pub(crate) background_drag: Option<(gpui::Point<gpui::Pixels>, f32, f32)>,
     /// The in-app folder browser for opening a folder as a space (`crate::folders`).
     pub(crate) folder_picker: Option<Entity<crate::folders::FolderPicker>>,
     /// The intro while it is showing (`crate::intro`).
@@ -357,6 +361,9 @@ impl Root {
             skills,
             palette: None,
             finding: 0,
+            background_busy: false,
+            background_error: None,
+            background_drag: None,
             folder_picker: None,
             intro: None,
             _intro_exit: None,
@@ -385,7 +392,7 @@ impl Root {
 
     fn route(&mut self, event: Event, window: &mut Window, cx: &mut Context<Self>) {
         match event {
-            Event::State { state } => self.loaded(state, window, cx),
+            Event::State { state } => self.loaded(*state, window, cx),
             Event::Agents { agents } => {
                 for view in self.views.values() {
                     if let View::Structured(v) = view {
@@ -516,6 +523,7 @@ impl Root {
                 ask,
             } => self.delegate(request, parent, ask, cx),
             Event::Folder(e) => self.folder_event(e, cx),
+            Event::Background(result) => self.background_arrived(result, window, cx),
             Event::Usage(e) => self.limits.update(cx, |l, cx| l.event(e, cx)),
             Event::Skills(e) => {
                 if let hyprspace_proto::SkillEvent::List { cwd, items } = &e {
@@ -786,7 +794,15 @@ impl Root {
             &a.theme,
             crate::colors::dark(a.scheme, window.appearance()),
             a.diff_colors == hyprspace_proto::state::DiffColors::BlueOrange,
+            a.background.as_ref().map(|b| (b.hue, b.chroma)),
+            a.glass,
         );
+        crate::wallpaper::set(a.background.clone());
+        window.set_background_appearance(if a.glass {
+            gpui::WindowBackgroundAppearance::Blurred
+        } else {
+            gpui::WindowBackgroundAppearance::Opaque
+        });
         crate::settings::set_terminal_font(a);
         crate::slide::set_animations(a.animations);
         crate::zoom::set(a.zoom);

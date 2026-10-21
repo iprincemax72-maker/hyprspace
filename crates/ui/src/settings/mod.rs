@@ -6,6 +6,7 @@
 mod about;
 mod agents;
 mod appearance;
+mod background;
 mod controls;
 mod general;
 mod machines;

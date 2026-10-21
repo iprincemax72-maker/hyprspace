@@ -138,7 +138,11 @@ pub fn card(c: &Composer, window: &mut Window, cx: &mut Context<Composer>) -> An
         .rounded(px(18.))
         .border_1()
         .border_color(frame)
-        .bg(colors::ink(0.045))
+        .bg(if crate::wallpaper::showing() {
+            colors::surface2().opacity(0.94)
+        } else {
+            colors::ink(0.045)
+        })
         // files held over the screen land here
         .drag_over::<gpui::ExternalPaths>(|s, _, _, _| {
             s.border_color(colors::accent())

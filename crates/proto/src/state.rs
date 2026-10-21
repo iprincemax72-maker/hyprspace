@@ -367,6 +367,72 @@ pub struct Appearance {
     /// Menus, panels and rows ease in and out. Off, they snap.
     pub animations: bool,
     pub zoom: f32,
+    /// The picture behind the new-thread screen.
+    pub background: Option<Background>,
+    pub effect: Effect,
+    /// A folder of pictures to shuffle the background through.
+    pub wallpapers: Option<PathBuf>,
+    /// The window lets the desktop show through, blurred.
+    pub glass: bool,
+}
+
+/// A picture the engine copied into the app's own folder, with its effect drawn into `shown`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Background {
+    pub source: PathBuf,
+    pub shown: PathBuf,
+    /// The picked file's own name.
+    pub name: String,
+    /// The picture's main color in oklch, for the theme taken from it.
+    pub hue: f32,
+    pub chroma: f32,
+    /// How far it is zoomed past filling its area, and which point stays in view.
+    #[serde(default = "unit")]
+    pub zoom: f32,
+    #[serde(default = "middle")]
+    pub x: f32,
+    #[serde(default = "middle")]
+    pub y: f32,
+}
+
+fn unit() -> f32 {
+    1.0
+}
+
+fn middle() -> f32 {
+    0.5
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Effect {
+    #[default]
+    None,
+    Dither,
+    Ascii,
+    Halftone,
+    Scanlines,
+}
+
+impl Effect {
+    pub const ALL: [Effect; 5] = [
+        Effect::None,
+        Effect::Dither,
+        Effect::Ascii,
+        Effect::Halftone,
+        Effect::Scanlines,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Effect::None => "None",
+            Effect::Dither => "Dither",
+            Effect::Ascii => "ASCII",
+            Effect::Halftone => "Halftone",
+            Effect::Scanlines => "Scanlines",
+        }
+    }
 }
 
 impl Default for Appearance {
@@ -381,6 +447,10 @@ impl Default for Appearance {
             diff_colors: DiffColors::RedGreen,
             animations: true,
             zoom: 1.0,
+            background: None,
+            effect: Effect::None,
+            wallpapers: None,
+            glass: false,
         }
     }
 }

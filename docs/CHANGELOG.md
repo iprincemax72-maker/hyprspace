@@ -4,6 +4,18 @@ Release notes for HyprSpace. Written **at ship time** — when you ask to ship, 
 changed since the last release and writes a few user-facing bullets; `deploy.ps1` records them here
 and uses them as the release notes + the in-app "What's new" notification. No per-task bookkeeping.
 
+## 0.24.29 — 2026-10-21
+
+- Pasted images get an [Image N] marker you can hover to preview, Ctrl+click to open, and delete as one piece
+- Alt+V pastes images in the composer, like in the terminal
+- Pictures a tool returns, like screenshots, show in the transcript
+- A running Codex command shows its output live
+- After an update, threads that were mid-run pick back up on their own and hear which background work stopped
+- Folds open and close smoothly, and running tools show a new ring spinner
+- Fast clicks on the sidebar and files panel buttons no longer get lost
+- On macOS, Settings can ask for screen recording and accessibility so agents can take screenshots
+- A calmer exit from the intro
+
 ## 0.24.28 — 2026-10-21
 
 - The taskbar shows the new icon right after an update

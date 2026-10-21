@@ -138,6 +138,12 @@ impl Flips {
     /// The change count while its slide is still going, else 0. A panel drawn again later, after
     /// Settings or another screen took its place, must not replay the last slide: that is what
     /// slid the sidebar in again and shoved the terminal right after closing Settings.
+    /// How far the slide has gone, 0 to 1, while it plays.
+    fn progress(&self) -> Option<f32> {
+        let at = self.at?;
+        (self.count() > 0).then(|| (at.elapsed().as_secs_f32() / LENGTH.as_secs_f32()).min(1.))
+    }
+
     pub fn count(&self) -> usize {
         // a few frames of slack, so the last frame of the slide still counts as part of it
         let live = self
@@ -154,13 +160,12 @@ impl Flips {
 /// stay on screen.
 pub fn slide(
     id: &'static str,
-    flips: usize,
+    flips: &Flips,
     open: bool,
     (shut, full): (f32, f32),
     end: bool,
     body: impl IntoElement,
 ) -> AnyElement {
-    let flips = if animations() { flips } else { 0 };
     let frame = div()
         .flex_none()
         .h_full()
@@ -168,18 +173,23 @@ pub fn slide(
         .overflow_hidden()
         .when(end, |d| d.justify_end())
         .child(body);
-    if flips == 0 {
+    let Some(t) = flips.progress().filter(|_| animations()) else {
         return frame
             .w(px(if open { full } else { shut }))
             .into_any_element();
-    }
+    };
     let (from, to) = if open { (shut, full) } else { (full, shut) };
+    // an animation wrapped around the panel would change its buttons' element ids as it starts
+    // and ends, and a quick second click lost its mouse-down; a ticker beside them keeps frames
+    // coming instead
+    let ticker = div().absolute().size_0().with_animation(
+        (id, flips.count),
+        Animation::new(LENGTH + Duration::from_millis(50)),
+        |d, _| d,
+    );
     frame
-        .with_animation(
-            (id, flips),
-            Animation::new(LENGTH).with_easing(ease_in_out),
-            move |d, t| d.w(px(from + (to - from) * t)),
-        )
+        .w(px(from + (to - from) * ease_in_out(t)))
+        .child(ticker)
         .into_any_element()
 }
 

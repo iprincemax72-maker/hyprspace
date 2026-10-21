@@ -185,6 +185,10 @@ fn hello_turn(fake: &Fake, turn: &str) {
     let cmd = json!({ "type": "commandExecution", "id": "c1", "command": "ls",
         "status": "inProgress", "aggregatedOutput": null, "exitCode": null });
     fake.item("item/started", cmd);
+    notify(
+        "item/commandExecution/outputDelta",
+        json!({ "threadId": fake.thread, "turnId": "t", "itemId": "c1", "delta": "a.txt" }),
+    );
     fake.item(
         "item/completed",
         json!({ "type": "commandExecution", "id": "c1", "command": "ls",

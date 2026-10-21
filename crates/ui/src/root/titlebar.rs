@@ -45,7 +45,7 @@ impl Root {
             // shut, the row keeps just the buttons
             slide(
                 "titlebar-sidebar",
-                self.sidebar_flips.count(),
+                &self.sidebar_flips,
                 open,
                 (LIGHTS + NAV, width),
                 false,

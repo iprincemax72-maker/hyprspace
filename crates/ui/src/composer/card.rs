@@ -148,6 +148,7 @@ pub fn card(c: &Composer, window: &mut Window, cx: &mut Context<Composer>) -> An
             s.border_color(colors::accent())
                 .bg(colors::accent().opacity(0.06))
         })
+        .children(attach::peek(&c.images, c.peek))
         .when(!c.images.is_empty(), |d| {
             d.child(div().px(px(14.)).pt(px(12.)).child(attach::tray(
                 "composer-img",
@@ -158,6 +159,7 @@ pub fn card(c: &Composer, window: &mut Window, cx: &mut Context<Composer>) -> An
                 cx.listener(|c, ix: &usize, _, cx| {
                     if *ix < c.images.len() {
                         c.images.remove(*ix);
+                        attach::unmark(&c.input, *ix, cx);
                     }
                     cx.notify();
                 }),

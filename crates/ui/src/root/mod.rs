@@ -539,6 +539,13 @@ impl Root {
             }
             Event::Update(e) => {
                 let quit = e == hyprspace_proto::UpdateEvent::Quit;
+                match &e {
+                    hyprspace_proto::UpdateEvent::Step { .. } => self.mark_updating(cx),
+                    hyprspace_proto::UpdateEvent::Failed { install: true, .. } => {
+                        self.pick_up_updates(false, cx)
+                    }
+                    _ => {}
+                }
                 self.updater.update(cx, |u, cx| u.event(e, cx));
                 // the installer waits for this process to exit; quitting also ends every session
                 if quit {
@@ -691,10 +698,12 @@ impl Root {
         let prefs = self.state.composer.clone();
         self.composer.update(cx, |c, cx| c.set_prefs(prefs, cx));
         let seen = self.state.seen_version.clone();
-        if self.updater.update(cx, |u, cx| u.launched_after(&seen, cx)) {
+        let updated = self.updater.update(cx, |u, cx| u.launched_after(&seen, cx));
+        if updated {
             self.state.seen_version = crate::update::VERSION.into();
             self.save();
         }
+        self.pick_up_updates(updated, cx);
         self.first_run(window, cx);
         if let Some(path) = self.open_arg.take() {
             let space = self.add_project(path, cx);

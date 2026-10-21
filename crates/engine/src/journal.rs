@@ -314,6 +314,7 @@ mod tests {
             id: "t".into(),
             ok: true,
             output: "login in a tool's output".into(),
+            images: Vec::new(),
         }));
         j.record(run(text("The log")));
         j.record(run(text("in form posts twice.\nUnrelated line.")));

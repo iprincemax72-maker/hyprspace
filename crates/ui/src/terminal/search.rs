@@ -31,7 +31,10 @@ impl Find {
                 InputEvent::Changed => v.refind(true, cx),
                 InputEvent::Submit => v.step(true, cx),
                 InputEvent::Cancel => v.close_find(cx),
-                InputEvent::Images(_) => {}
+                InputEvent::Images(_)
+                | InputEvent::Unmarked(_)
+                | InputEvent::Peek(_)
+                | InputEvent::Open(_) => {}
             },
         );
         Self {

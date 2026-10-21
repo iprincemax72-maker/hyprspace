@@ -32,6 +32,10 @@ pub enum Item {
         /// (ok, output) once the call ended.
         done: Option<(bool, String)>,
         open: bool,
+        /// Pictures it gave back.
+        images: Vec<PathBuf>,
+        /// The end of what it has printed so far, while it runs.
+        live: String,
     },
     Agent(Subagent),
     Approval {
@@ -90,6 +94,7 @@ pub struct Call {
     pub tool: Tool,
     pub done: Option<(bool, String)>,
     pub open: bool,
+    pub images: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -380,9 +385,16 @@ impl Transcript {
                     tool,
                     done: None,
                     open: false,
+                    images: Vec::new(),
+                    live: String::new(),
                 }),
             },
-            RunEvent::ToolDone { id, ok, output } => {
+            RunEvent::ToolDone {
+                id,
+                ok,
+                output,
+                images: pictures,
+            } => {
                 if let Some(a) = self.agent(&id) {
                     a.state = if ok {
                         AgentState::Done
@@ -391,8 +403,22 @@ impl Transcript {
                     };
                     a.report = output;
                     a.blocks = None;
-                } else if let Some(Item::Tool { done, .. }) = self.tool(&id) {
+                } else if let Some(Item::Tool {
+                    done, images, live, ..
+                }) = self.tool(&id)
+                {
                     *done = Some((ok, output));
+                    *images = pictures;
+                    live.clear();
+                }
+            }
+            RunEvent::ToolOutput { id, text } => {
+                if let Some(Item::Tool {
+                    done: None, live, ..
+                }) = self.tool(&id)
+                {
+                    live.push_str(&text);
+                    keep_tail(live);
                 }
             }
             RunEvent::SubagentTool { parent, id, tool } => {
@@ -404,6 +430,7 @@ impl Transcript {
                             tool,
                             done: None,
                             open: false,
+                            images: Vec::new(),
                         }),
                     }
                 }
@@ -413,9 +440,11 @@ impl Transcript {
                 id,
                 ok,
                 output,
+                images,
             } => {
                 if let Some(c) = self.agent(&parent).and_then(|a| a.call(&id)) {
                     c.done = Some((ok, output));
+                    c.images = images;
                 }
             }
             RunEvent::SubagentText { parent, text } => {
@@ -535,6 +564,14 @@ impl Transcript {
     pub fn settle(&mut self) -> Option<usize> {
         self.compacting = false;
         let cut = self.run.take().map(|_| {
+            for item in &mut self.items {
+                if let Item::Tool {
+                    done: done @ None, ..
+                } = item
+                {
+                    *done = Some((false, "The app closed before it finished.".into()));
+                }
+            }
             self.note("The app closed before this run finished.");
             self.items.len() - 1
         });
@@ -632,9 +669,45 @@ pub fn reply(source: &str, command: bool) -> Vec<Block> {
     markdown::parse(&kept.join("\n"))
 }
 
+/// How much of a running command's output stays: the end, so a chatty build stays cheap to draw.
+const LIVE_TAIL: usize = 16 << 10;
+
+fn keep_tail(text: &mut String) {
+    if text.len() <= LIVE_TAIL {
+        return;
+    }
+    let mut cut = text.len() - LIVE_TAIL;
+    while !text.is_char_boundary(cut) {
+        cut += 1;
+    }
+    if let Some(nl) = text[cut..].find('\n') {
+        cut += nl + 1;
+    }
+    text.drain(..cut);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_running_command_keeps_the_end_of_its_output_whole_lines_first() {
+        let mut out = String::new();
+        for n in 0..5000 {
+            out.push_str(&format!("line {n}\n"));
+        }
+        keep_tail(&mut out);
+        assert!(out.len() <= LIVE_TAIL);
+        assert!(
+            out.starts_with("line "),
+            "cut at a line start: {:?}",
+            &out[..12]
+        );
+        assert!(out.ends_with("line 4999\n"));
+        let mut short = "ok".to_string();
+        keep_tail(&mut short);
+        assert_eq!(short, "ok");
+    }
 
     #[test]
     fn background_tasks_end_with_the_cli() {
@@ -759,6 +832,7 @@ mod tests {
             id: "t1".into(),
             ok: true,
             output: "a.txt".into(),
+            images: Vec::new(),
         });
         let tools: Vec<_> = t
             .items
@@ -838,6 +912,7 @@ mod tests {
             id: "s1".into(),
             ok: true,
             output: "a.txt".into(),
+            images: Vec::new(),
         });
         t.apply(RunEvent::SubagentText {
             parent: "a1".into(),
@@ -847,6 +922,7 @@ mod tests {
             id: "a1".into(),
             ok: true,
             output: "Report.".into(),
+            images: Vec::new(),
         });
         t.apply(finished(RunStatus::Done, "ok"));
         // two cards, no tool rows, and the main reply holds none of the subagent's text
@@ -872,6 +948,7 @@ mod tests {
             id: "a2".into(),
             ok: false,
             output: String::new(),
+            images: Vec::new(),
         });
         assert_eq!(agent(&t, "a2"), AgentState::Failed);
         t.apply(RunEvent::Woke);
@@ -905,7 +982,19 @@ mod tests {
         });
         t.prompt(&Prompt::text("x"));
         t.apply(approval("r1"));
+        t.apply(RunEvent::Tool {
+            id: "c1".into(),
+            tool: Tool::Command {
+                command: "cargo test".into(),
+            },
+        });
         t.settle();
+        // a call left open stops showing as running
+        assert!(
+            t.items
+                .iter()
+                .all(|i| !matches!(i, Item::Tool { done: None, .. }))
+        );
         assert_eq!(t.thread.as_deref(), Some("th"));
         assert!(!t.running());
         assert!(matches!(t.items.last(), Some(Item::Note(_))));
@@ -1009,6 +1098,7 @@ mod tests {
                 id: format!("t{i}"),
                 ok: true,
                 output: "ok".into(),
+                images: Vec::new(),
             });
             m.apply(text(&reply));
             m.apply(RunEvent::Finished {

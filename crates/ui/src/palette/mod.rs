@@ -137,7 +137,10 @@ impl Palette {
             }
             InputEvent::Submit => p.run(p.sel, cx),
             InputEvent::Cancel => cx.emit(PaletteEvent::Close),
-            InputEvent::Images(_) => {}
+            InputEvent::Images(_)
+            | InputEvent::Unmarked(_)
+            | InputEvent::Peek(_)
+            | InputEvent::Open(_) => {}
         });
         Self {
             input,

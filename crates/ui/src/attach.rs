@@ -2,14 +2,15 @@
 // paths), dropped ones are used where they are. Shared by the composer and the transcript, with
 // how a dropped file's path is typed, which the terminal shares too.
 
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use gpui::{
-    AnyElement, App, Asset, Context, ElementId, Image, ImageFormat, IntoElement, ObjectFit,
-    RenderImage, Window, div, img, prelude::*,
+    Anchor, AnyElement, App, Asset, Context, ElementId, Image, ImageFormat, IntoElement, ObjectFit,
+    Pixels, Point, RenderImage, Window, anchored, deferred, div, img, point, prelude::*,
 };
 pub use hyprspace_media::is_video;
 
@@ -248,6 +249,137 @@ pub fn thumb(path: &Path, size: f32) -> AnyElement {
         .into_any_element()
 }
 
+/// What a paste types at the cursor, so the prompt can point at the nth image in the tray.
+pub fn marker(n: usize) -> String {
+    format!("[Image {n}]")
+}
+
+/// Types a marker at the cursor for each of `count` new images, numbered from `first`.
+pub fn mark(
+    input: &gpui::Entity<crate::input::TextInput>,
+    first: usize,
+    count: usize,
+    cx: &mut App,
+) {
+    input.update(cx, |i, cx| {
+        let before = i.text()[..i.cursor_offset()].chars().next_back();
+        let lead = if before.is_some_and(|c| !c.is_whitespace()) {
+            " "
+        } else {
+            ""
+        };
+        let tags: String = (first..first + count).map(|n| marker(n) + " ").collect();
+        i.insert(&format!("{lead}{tags}"), cx);
+    });
+}
+
+/// Takes the tray image at `ix` out of the text in `input`, counting later markers down.
+pub fn unmark(input: &gpui::Entity<crate::input::TextInput>, ix: usize, cx: &mut App) {
+    input.update(cx, |i, cx| {
+        let text = renumber(i.text(), ix);
+        if text != i.text() {
+            i.set_text(text, cx);
+        }
+    });
+}
+
+/// Takes out of `images` the ones whose markers an edit removed, counting the markers left down.
+pub fn drop_unmarked(
+    images: &mut Vec<PathBuf>,
+    gone: &[usize],
+    input: &gpui::Entity<crate::input::TextInput>,
+    cx: &mut App,
+) {
+    let mut gone = gone.to_vec();
+    gone.sort_unstable_by(|a, b| b.cmp(a));
+    gone.dedup();
+    for n in gone {
+        if (1..=images.len()).contains(&n) {
+            images.remove(n - 1);
+            unmark(input, n - 1, cx);
+        }
+    }
+}
+
+/// Where `text` names a tray image, and which one, counting from 1.
+pub fn markers(text: &str) -> Vec<(Range<usize>, usize)> {
+    const OPEN: &str = "[Image ";
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(at) = text[from..].find(OPEN) {
+        let start = from + at;
+        let rest = &text[start + OPEN.len()..];
+        let len = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
+        if len > 0
+            && rest[len..].starts_with(']')
+            && let Ok(n) = rest[..len].parse()
+        {
+            out.push((start..start + OPEN.len() + len + 1, n));
+        }
+        from = start + OPEN.len();
+    }
+    out
+}
+
+/// `text` once the tray's image at `ix` is removed: its markers go and the later ones count down.
+pub fn renumber(text: &str, ix: usize) -> String {
+    let gone = ix + 1;
+    let mut out = String::with_capacity(text.len());
+    let mut last = 0;
+    for (range, n) in markers(text) {
+        out.push_str(&text[last..range.start]);
+        last = range.end;
+        if n == gone {
+            if text[last..].starts_with(' ') {
+                last += 1;
+            }
+        } else if n > gone {
+            out.push_str(&marker(n - 1));
+        } else {
+            out.push_str(&text[range]);
+        }
+    }
+    out.push_str(&text[last..]);
+    out
+}
+
+/// The tray image a marker names, floated just over the marker while the pointer rests on it.
+pub fn peek(images: &[PathBuf], at: Option<(usize, Point<Pixels>)>) -> Option<AnyElement> {
+    let (n, p) = at?;
+    let path = images.get(n.checked_sub(1)?)?;
+    let picture = if is_image(path) {
+        img(path.clone())
+            .w(px(280.))
+            .h(px(180.))
+            .rounded(px(6.))
+            .object_fit(ObjectFit::Contain)
+            .into_any_element()
+    } else {
+        thumb(path, 120.)
+    };
+    let card = div()
+        .p(px(4.))
+        .rounded(px(9.))
+        .border_1()
+        .border_color(colors::border2())
+        .bg(colors::surface2())
+        .shadow(colors::shadow())
+        .child(picture);
+    let at = point(p.x, p.y - px(6.));
+    Some(
+        deferred(
+            anchored()
+                .anchor(Anchor::BottomLeft)
+                .position(at)
+                .child(card),
+        )
+        .with_priority(2)
+        .into_any_element(),
+    )
+}
+
 /// The tray of images waiting to be sent, each with a remove button. `remove` gets the index.
 pub fn tray(
     id: &str,
@@ -296,6 +428,20 @@ pub fn tray(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn removing_an_image_drops_its_marker_and_counts_the_rest_down() {
+        let text = "see [Image 1] and [Image 2] then [Image 3], not [Image x] or [Image 3";
+        assert_eq!(
+            markers(text).iter().map(|(_, n)| *n).collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
+        assert_eq!(
+            renumber(text, 1),
+            "see [Image 1] and then [Image 2], not [Image x] or [Image 3"
+        );
+        assert_eq!(renumber("[Image 1] hi", 0), "hi");
+    }
 
     #[test]
     fn paths_stay_one_argument() {

@@ -73,10 +73,12 @@ async fn streams_a_reply_with_thinking_and_tool_calls() {
     assert!(run.contains(&RunEvent::ToolDone {
         id: "t1".into(),
         ok: true,
-        output: "file.txt".into()
+        output: "file.txt".into(),
+        images: Vec::new(),
     }));
     assert!(run.contains(&RunEvent::ToolDone {
         id: "t2".into(),
+        images: Vec::new(),
         ok: false,
         output: "no such file".into()
     }));
@@ -475,7 +477,7 @@ fn agent_done(events: &[RunEvent], agent: &str) -> Vec<(bool, String)> {
     events
         .iter()
         .filter_map(|e| match e {
-            RunEvent::ToolDone { id, ok, output } if id == agent => Some((*ok, output.clone())),
+            RunEvent::ToolDone { id, ok, output, .. } if id == agent => Some((*ok, output.clone())),
             _ => None,
         })
         .collect()
@@ -514,6 +516,7 @@ async fn a_subagent_reports_under_its_call() {
         id: "s1".into(),
         ok: true,
         output: "a.txt".into(),
+        images: Vec::new(),
     }));
     assert!(run.contains(&RunEvent::SubagentText {
         parent: "toolu_agent".into(),

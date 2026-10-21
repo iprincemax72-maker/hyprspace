@@ -9,8 +9,9 @@ use std::time::{Duration, Instant};
 
 use gpui::{
     Animation, AnimationExt, AnyElement, ClickEvent, Context, Div, ElementId, ExternalPaths,
-    Focusable, FontWeight, IntoElement, MouseButton, ScrollWheelEvent, SharedString, StyledText,
-    Transformation, Window, div, list, percentage, prelude::*, relative,
+    Focusable, FontWeight, HighlightStyle, InteractiveText, IntoElement, MouseButton,
+    ScrollWheelEvent, SharedString, StyledText, Transformation, Window, div, list, percentage,
+    prelude::*, relative,
 };
 use hyprspace_proto::{RunStatus, TaskKind, Tool};
 
@@ -782,6 +783,12 @@ fn item(
             .group(SharedString::from(format!("msg-{ix}")))
             .child(
                 div()
+                    .id(("bubble", ix))
+                    .on_hover(cx.listener(move |v, over: &bool, _, cx| {
+                        if !over {
+                            v.light(ix, None, cx);
+                        }
+                    }))
                     .max_w(relative(0.8))
                     .px(px(16.))
                     .py(px(10.))
@@ -797,15 +804,34 @@ fn item(
                         let long = text.lines().count() > 10 || text.len() > 900;
                         let open = v.expanded.contains(&ix);
                         let body = SharedString::from(text.clone());
-                        let styled = StyledText::new(body.clone());
+                        let chip = HighlightStyle {
+                            background_color: Some(colors::ink(0.1)),
+                            ..Default::default()
+                        };
+                        let marks = attach::markers(text);
+                        let styled = StyledText::new(body.clone())
+                            .with_highlights(marks.iter().map(|(r, _)| (r.clone(), chip)));
                         let layout = styled.layout().clone();
+                        let shown = if marks.is_empty() {
+                            styled.into_any_element()
+                        } else {
+                            let view = cx.entity().downgrade();
+                            InteractiveText::new(("marks", ix), styled)
+                                .on_hover(move |at, _, _, cx| {
+                                    let n = at.and_then(|at| {
+                                        marks.iter().find(|(r, _)| r.contains(&at)).map(|m| m.1)
+                                    });
+                                    let _ = view.update(cx, |v, cx| v.light(ix, n, cx));
+                                })
+                                .into_any_element()
+                        };
                         let shown = div()
                             .when(long && !open, |d| d.max_h(px(220.)).overflow_hidden())
                             .child(markdown::select::wrap(
                                 &format!("u{ix}"),
                                 body,
                                 layout,
-                                styled.into_any_element(),
+                                shown,
                             ));
                         d.child(shown).when(long, |d| {
                             d.child(
@@ -830,11 +856,18 @@ fn item(
                         })
                     })
                     .when(!images.is_empty(), |d| {
+                        let lit = v.lit.filter(|(row, _)| *row == ix).map(|(_, n)| n);
                         d.child(div().flex().flex_wrap().gap_2().children(
                             images.iter().enumerate().map(|(k, p)| {
                                 let path = p.clone();
                                 div()
                                     .id(SharedString::from(format!("sent-img-{ix}-{k}")))
+                                    .when(lit.is_some_and(|n| n != k + 1), |d| d.opacity(0.3))
+                                    .on_hover(cx.listener(move |v, over: &bool, _, cx| {
+                                        if *over {
+                                            v.light(ix, None, cx);
+                                        }
+                                    }))
                                     .child(attach::thumb(p, 120.))
                                     .when(attach::previews(p) && p.exists(), |d| {
                                         d.cursor_pointer().on_click(cx.listener(
@@ -937,12 +970,17 @@ fn item(
                     super::ask::plan_card(v, None, input, None, false, ix, cx)
                 }
                 Some((super::ask::TODO, input)) => super::ask::todo_card(input),
-                _ => main_tool(ix, tool, None, false, cx),
+                _ => main_tool(ix, tool, None, false, &[], "", cx),
             }
         }
         Item::Tool {
-            tool, done, open, ..
-        } => main_tool(ix, tool, done.as_ref(), *open, cx),
+            tool,
+            done,
+            open,
+            images,
+            live,
+            ..
+        } => main_tool(ix, tool, done.as_ref(), *open, images, live, cx),
         Item::Agent(a) => super::subagent::card(ix, a, cx),
         Item::Approval {
             request,
@@ -1106,6 +1144,14 @@ pub(super) fn twist(key: &str, open: bool) -> AnyElement {
     }
 }
 
+thread_local! {
+    /// Each fold body's natural height as last drawn, for growing it open and shrinking it shut.
+    static FOLD_HEIGHTS: std::cell::RefCell<std::collections::HashMap<String, f32>> =
+        std::cell::RefCell::default();
+}
+
+/// `body` under its fold header, growing open or shrinking shut while it fades after a toggle.
+/// The parent's 6px gap opens and closes with it, so nothing snaps at either end.
 pub(super) fn unfold(
     cx: &Context<TranscriptView>,
     id: impl Into<ElementId>,
@@ -1113,24 +1159,39 @@ pub(super) fn unfold(
     body: impl IntoElement,
 ) -> AnyElement {
     let key = fold_key(cx, &id.into());
-    let body = div().relative().child(body);
-    match slide::flipped(&key, UNFOLD) {
-        Some(n) if open => body
-            .with_animation(
-                ("unfold", n),
-                Animation::new(UNFOLD).with_easing(ease_out),
-                |d, t| d.opacity(t).top(px(-6. * (1. - t))),
-            )
-            .into_any_element(),
-        Some(n) => body
-            .with_animation(
-                ("fold", n),
-                Animation::new(UNFOLD).with_easing(ease_out),
-                |d, t| d.opacity(1. - t).top(px(-6. * t)),
-            )
-            .into_any_element(),
-        None => body.into_any_element(),
-    }
+    let mark = key.clone();
+    let measure = gpui::canvas(
+        move |b, _, _| {
+            let h = f32::from(b.size.height);
+            FOLD_HEIGHTS.with(|m| m.borrow_mut().insert(mark, h));
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .inset_0();
+    let body = div()
+        .relative()
+        .flex()
+        .flex_col()
+        .child(div().relative().flex_none().child(body).child(measure));
+    let Some(n) = slide::flipped(&key, UNFOLD) else {
+        return body.into_any_element();
+    };
+    // the height is read each frame: on a first opening it is known from the second frame on
+    let shown = move |t: f32| if open { t } else { 1. - t };
+    body.overflow_hidden()
+        .with_animation(
+            ("fold", n),
+            Animation::new(UNFOLD).with_easing(ease_out),
+            move |d, t| {
+                let s = shown(t);
+                let h = FOLD_HEIGHTS
+                    .with(|m| m.borrow().get(&key).copied())
+                    .unwrap_or(0.);
+                d.opacity(s).mt(px(-6. * (1. - s))).h(gpui::px(h * s))
+            },
+        )
+        .into_any_element()
 }
 
 pub(super) fn folding(cx: &Context<TranscriptView>, id: impl Into<ElementId>) -> bool {
@@ -1188,8 +1249,8 @@ fn tool_run(
                     .child(format!("{failed} failed")),
             )
         })
-        .when(live, |d| {
-            d.child(spinner::eclipse(("run-live", start), colors::text3()))
+        .when(live && !open, |d| {
+            d.child(spinner::ring(("run-live", start), colors::text3()))
         });
     let head = fold_head(
         ("tool-run", start),
@@ -1212,8 +1273,13 @@ fn tool_run(
             let calls: Vec<AnyElement> = (start..end)
                 .filter_map(|ix| match &v.model.items[ix] {
                     Item::Tool {
-                        tool, done, open, ..
-                    } => Some(main_tool(ix, tool, done.as_ref(), *open, cx)),
+                        tool,
+                        done,
+                        open,
+                        images,
+                        live,
+                        ..
+                    } => Some(main_tool(ix, tool, done.as_ref(), *open, images, live, cx)),
                     _ => None,
                 })
                 .collect();
@@ -1237,13 +1303,46 @@ fn main_tool(
     t: &Tool,
     done: Option<&(bool, String)>,
     open: bool,
+    images: &[PathBuf],
+    live: &str,
     cx: &mut Context<TranscriptView>,
 ) -> AnyElement {
-    tool_card(format!("tool-{ix}").into(), t, done, open, cx, move |v| {
+    let key: SharedString = format!("tool-{ix}").into();
+    let card = tool_card(key.clone(), t, done, live, open, cx, move |v| {
         if let Some(Item::Tool { open, .. }) = v.model.items.get_mut(ix) {
             *open = !*open;
         }
-    })
+    });
+    with_pictures(card, &key, images, cx)
+}
+
+/// `card` with the pictures its tool gave back under it, each opening full size on a click.
+pub(super) fn with_pictures(
+    card: AnyElement,
+    key: &str,
+    images: &[PathBuf],
+    cx: &mut Context<TranscriptView>,
+) -> AnyElement {
+    if images.is_empty() {
+        return card;
+    }
+    let shown = images.iter().enumerate().map(|(k, p)| {
+        let path = p.clone();
+        div()
+            .id(SharedString::from(format!("{key}-pic-{k}")))
+            .cursor_pointer()
+            .child(attach::thumb(p, 120.))
+            .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
+                cx.emit(TranscriptEvent::ShowMedia(path.clone()))
+            }))
+    });
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(6.))
+        .child(card)
+        .child(div().pl(px(26.)).flex().flex_wrap().gap_2().children(shown))
+        .into_any_element()
 }
 
 /// One tool call as a muted line that opens to its input and output. `key` keeps its element
@@ -1252,12 +1351,13 @@ pub(super) fn tool_card(
     key: SharedString,
     t: &Tool,
     done: Option<&(bool, String)>,
+    live: &str,
     open: bool,
     cx: &mut Context<TranscriptView>,
     toggle: impl Fn(&mut TranscriptView) + 'static,
 ) -> AnyElement {
     let state = match done {
-        None => Some(spinner::eclipse((key.clone(), 1), colors::text3())),
+        None => Some(spinner::ring((key.clone(), 1), colors::text3())),
         Some((false, _)) => Some(
             div()
                 .text_color(if matches!(t, Tool::Edit { .. }) {
@@ -1283,6 +1383,7 @@ pub(super) fn tool_card(
         }
         _ => None,
     };
+    let shown = done.map_or(live, |(_, out)| out.as_str());
     let body_id: ElementId = (key.clone(), 0usize).into();
     let head = fold_head(
         (key, 0),
@@ -1324,10 +1425,7 @@ pub(super) fn tool_card(
                         },
                         |d, diffs| d.child(diffs),
                     )
-                    .children(
-                        done.filter(|(_, out)| !out.trim().is_empty())
-                            .map(|(_, out)| tool::mono(out)),
-                    ),
+                    .when(!shown.trim().is_empty(), |d| d.child(tool::mono(shown))),
             ))
         })
         .into_any_element()
@@ -1423,6 +1521,7 @@ fn composer(
             s.border_color(colors::accent())
                 .bg(colors::accent().opacity(0.06))
         })
+        .children(attach::peek(&v.images, v.peek))
         .when(!v.images.is_empty(), |d| {
             d.child(div().px(px(14.)).pt(px(12.)).child(attach::tray(
                 "thread-img",
@@ -1433,6 +1532,7 @@ fn composer(
                 cx.listener(|v, ix: &usize, _, cx| {
                     if *ix < v.images.len() {
                         v.images.remove(*ix);
+                        attach::unmark(&v.input, *ix, cx);
                         v.keep_draft(cx);
                     }
                     cx.notify();

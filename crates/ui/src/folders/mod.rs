@@ -155,7 +155,10 @@ impl FolderPicker {
                 InputEvent::Changed => p.refresh(cx),
                 InputEvent::Submit => p.enter(cx),
                 InputEvent::Cancel => p.back(cx),
-                InputEvent::Images(_) => {}
+                InputEvent::Images(_)
+                | InputEvent::Unmarked(_)
+                | InputEvent::Peek(_)
+                | InputEvent::Open(_) => {}
             }),
             cx.subscribe(&query, |p, _, e: &InputEvent, cx| match e {
                 InputEvent::Changed => {
@@ -164,7 +167,10 @@ impl FolderPicker {
                 }
                 InputEvent::Submit => p.choose_picked(cx),
                 InputEvent::Cancel => cx.emit(PickerEvent::Close),
-                InputEvent::Images(_) => {}
+                InputEvent::Images(_)
+                | InputEvent::Unmarked(_)
+                | InputEvent::Peek(_)
+                | InputEvent::Open(_) => {}
             }),
             cx.subscribe(&field, |p, _, e: &InputEvent, cx| match e {
                 InputEvent::Changed => {
@@ -174,7 +180,10 @@ impl FolderPicker {
                 InputEvent::Submit => p.submit(cx),
                 InputEvent::Cancel if p.naming => p.stop_naming(cx),
                 InputEvent::Cancel => p.choose(Stage::Sources, cx),
-                InputEvent::Images(_) => {}
+                InputEvent::Images(_)
+                | InputEvent::Unmarked(_)
+                | InputEvent::Peek(_)
+                | InputEvent::Open(_) => {}
             }),
         ];
         let mut p = Self {

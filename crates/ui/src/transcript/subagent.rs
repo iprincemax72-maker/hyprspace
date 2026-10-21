@@ -18,7 +18,7 @@ pub fn card(ix: usize, a: &Subagent, cx: &mut Context<TranscriptView>) -> AnyEle
             .flex()
             .items_center()
             .gap(px(6.))
-            .child(spinner::eclipse(("agent-live", ix), colors::text3()))
+            .child(spinner::ring(("agent-live", ix), colors::text3()))
             .child(elapsed(a.since.elapsed().as_secs()))
             .into_any_element(),
         AgentState::Done => div().child("Done").into_any_element(),
@@ -152,10 +152,12 @@ fn body(ix: usize, a: &Subagent, cx: &mut Context<TranscriptView>) -> AnyElement
     let unfinished = (false, String::new());
     let calls = a.calls.iter().enumerate().map(|(j, c)| {
         let done = c.done.as_ref().or(ended.then_some(&unfinished));
-        tool_card(
-            format!("agent-{ix}-call-{j}").into(),
+        let key = format!("agent-{ix}-call-{j}");
+        let card = tool_card(
+            key.clone().into(),
             &c.tool,
             done,
+            "",
             c.open,
             cx,
             move |v| {
@@ -165,7 +167,8 @@ fn body(ix: usize, a: &Subagent, cx: &mut Context<TranscriptView>) -> AnyElement
                     c.open = !c.open;
                 }
             },
-        )
+        );
+        super::render::with_pictures(card, &key, &c.images, cx)
     });
     let answer = a.blocks.as_ref().filter(|b| !b.is_empty()).map(|b| {
         div()

@@ -130,6 +130,15 @@ pub enum RunEvent {
         id: String,
         ok: bool,
         output: String,
+        /// Pictures the tool gave back, saved as files.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<PathBuf>,
+    },
+    /// More of a running command's output, as it prints. Not journaled: `ToolDone` carries the
+    /// whole output.
+    ToolOutput {
+        id: String,
+        text: String,
     },
     /// A tool call a subagent made. `parent` is the id of the `Tool::Agent` call that started
     /// the subagent; a subagent's own subagents report under the same `parent`.
@@ -144,6 +153,8 @@ pub enum RunEvent {
         id: String,
         ok: bool,
         output: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<PathBuf>,
     },
     /// A block of text a subagent wrote along the way. Its final report comes as the
     /// `ToolDone` of its `Tool::Agent` call.

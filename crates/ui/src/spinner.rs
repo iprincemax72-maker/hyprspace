@@ -1,5 +1,5 @@
-// The spinner shown while something runs, after loading.dev's Eclipse: two dots trading places,
-// one passing behind the other.
+// The spinners shown while something runs, after loading.dev's: Eclipse, two dots trading
+// places, beside "Working", and Ring, an arc turning over a faint circle, on the rest.
 
 use std::f32::consts::TAU;
 
@@ -38,6 +38,22 @@ pub fn eclipse(id: impl Into<ElementId>, color: Hsla) -> AnyElement {
                         .top(px((H - size) / 2.))
                         .opacity(0.65 + 0.35 * near)
                 })
+        }))
+        .into_any_element()
+}
+
+/// An arc turning over a faint ring, sized to sit on a 12.5px line. `id` must be unique among
+/// its siblings.
+pub fn ring(id: impl Into<ElementId>, color: Hsla) -> AnyElement {
+    div()
+        .id(id)
+        .flex_none()
+        .size(px(12.5))
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(icon("spin", 12., color).looping(800, |s, t| {
+            s.with_transformation(Transformation::rotate(radians(t * TAU)))
         }))
         .into_any_element()
 }

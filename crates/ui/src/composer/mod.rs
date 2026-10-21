@@ -95,6 +95,7 @@ pub struct Composer {
     images: Vec<PathBuf>,
     saving: usize,
     send_saved: bool,
+    peek: Option<(usize, Point<Pixels>)>,
     /// The permission menu, open where it was clicked.
     menu: Option<Point<Pixels>>,
     models: Option<ModelMenu>,
@@ -135,15 +136,30 @@ impl Composer {
                 InputEvent::Submit => this.submit(cx),
                 InputEvent::Changed => this.text_changed(cx),
                 InputEvent::Images(images) => {
-                    this.saving += 1;
-                    attach::save_later(images.clone(), cx, |this, saved, cx| {
-                        this.saving -= 1;
+                    let asked = images.len();
+                    attach::mark(&this.input, this.images.len() + this.saving + 1, asked, cx);
+                    this.saving += asked;
+                    attach::save_later(images.clone(), cx, move |this, saved, cx| {
+                        this.saving -= asked;
                         this.images.extend(saved);
                         if this.saving == 0 && std::mem::take(&mut this.send_saved) {
                             this.submit(cx);
                         }
                         cx.notify();
                     })
+                }
+                InputEvent::Unmarked(gone) => {
+                    attach::drop_unmarked(&mut this.images, gone, &this.input, cx);
+                    cx.notify();
+                }
+                InputEvent::Peek(at) => {
+                    this.peek = *at;
+                    cx.notify();
+                }
+                InputEvent::Open(n) => {
+                    if let Some(path) = n.checked_sub(1).and_then(|i| this.images.get(i)) {
+                        cx.emit(ComposerEvent::ShowMedia(path.clone()));
+                    }
                 }
                 InputEvent::Cancel => {
                     this.menu = None;
@@ -172,6 +188,7 @@ impl Composer {
             images: Vec::new(),
             saving: 0,
             send_saved: false,
+            peek: None,
             menu: None,
             models: None,
             anchor: Anchor::default(),

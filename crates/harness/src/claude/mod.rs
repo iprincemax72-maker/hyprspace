@@ -600,18 +600,23 @@ impl Actor {
                         self.open_tools.remove(&id);
                         let ok = !block["is_error"].as_bool().unwrap_or(false);
                         let content = &block["content"];
-                        let output = match self.agents.get_mut(&id) {
-                            None => tools::result_text(content),
+                        let (output, images) = match self.agents.get_mut(&id) {
+                            None => (tools::result_text(content), crate::images::saved(content)),
                             // its task_notification already said how it ended
                             Some(true) => continue,
                             // a background subagent is still working; it ends by notification
                             Some(_) if ok && tools::launched(&v, content) => continue,
                             Some(done) => {
                                 *done = true;
-                                tools::report(content)
+                                (tools::report(content), Vec::new())
                             }
                         };
-                        (self.emit)(RunEvent::ToolDone { id, ok, output });
+                        (self.emit)(RunEvent::ToolDone {
+                            id,
+                            ok,
+                            output,
+                            images,
+                        });
                     }
                 }
                 self.replayed(v["uuid"].as_str());
@@ -703,6 +708,7 @@ impl Actor {
                             id: text(&block["tool_use_id"]),
                             ok: !block["is_error"].as_bool().unwrap_or(false),
                             output: tools::result_text(&block["content"]),
+                            images: crate::images::saved(&block["content"]),
                         });
                     }
                 }
@@ -730,6 +736,7 @@ impl Actor {
             id,
             ok,
             output: text(&v["summary"]).trim().to_string(),
+            images: Vec::new(),
         });
     }
 

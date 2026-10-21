@@ -104,18 +104,6 @@ pub fn wake_label(at: NaiveDateTime, now: NaiveDateTime) -> String {
     }
 }
 
-/// When something happened, from `now`: "today 2:14 PM", "yesterday 9:00 AM", "Mon 9:00 AM"
-/// this week, "Oct 3, 9:00 AM" this year, "Oct 3 2025, 9:00 AM" before that.
-pub fn past_label(at: NaiveDateTime, now: NaiveDateTime) -> String {
-    match (now.date() - at.date()).num_days() {
-        ..=0 => format!("today {}", clock(at)),
-        1 => format!("yesterday {}", clock(at)),
-        2..=6 => format!("{} {}", weekday(at.weekday()), clock(at)),
-        _ if at.year() == now.year() => format!("{}, {}", at.format("%b %-d"), clock(at)),
-        _ => format!("{}, {}", at.format("%b %-d %Y"), clock(at)),
-    }
-}
-
 /// The menu's short form beside a choice: the clock for today and tomorrow, the day too further
 /// out.
 /// How long until `at`, from `now`, both unix ms: "in 45m", "in 3h", "in 2d 4h".
@@ -218,22 +206,6 @@ mod tests {
         assert_eq!(wake_label(at(2026, 10, 5, 9, 0), now), "Mon 9:00 AM");
         assert_eq!(wake_label(at(2026, 10, 12, 0, 15), now), "Oct 12, 12:15 AM");
         assert_eq!(wake_short(at(2026, 10, 5, 9, 0), now), "Mon 9:00 AM");
-    }
-
-    #[test]
-    fn past_times_read_like_a_clock() {
-        let now = at(2026, 10, 13, 14, 30);
-        assert_eq!(past_label(at(2026, 10, 13, 9, 5), now), "today 9:05 AM");
-        assert_eq!(
-            past_label(at(2026, 10, 12, 23, 0), now),
-            "yesterday 11:00 PM"
-        );
-        assert_eq!(past_label(at(2026, 10, 9, 9, 0), now), "Fri 9:00 AM");
-        assert_eq!(past_label(at(2026, 10, 3, 0, 15), now), "Oct 3, 12:15 AM");
-        assert_eq!(
-            past_label(at(2025, 12, 30, 8, 0), now),
-            "Dec 30 2025, 8:00 AM"
-        );
     }
 
     #[test]

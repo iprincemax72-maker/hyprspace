@@ -76,6 +76,8 @@ pub struct TranscriptView {
     queued: Option<Prompt>,
     queue: Vec<Prompt>,
     resume_at: Option<u64>,
+    /// Background work to name when a run cut off by an update picks back up.
+    updated: Option<Vec<String>>,
     pub(super) cut: Option<usize>,
     draft: Option<Task<()>>,
     probing: bool,
@@ -83,6 +85,9 @@ pub struct TranscriptView {
     input: Entity<TextInput>,
     images: Vec<PathBuf>,
     saving: usize,
+    peek: Option<(usize, gpui::Point<gpui::Pixels>)>,
+    /// A sent message's image whose marker the pointer is on: the row, and the image's number.
+    lit: Option<(usize, usize)>,
     send_saved: bool,
     list: ListState,
     rows: Vec<rows::Row>,
@@ -162,9 +167,11 @@ impl TranscriptView {
             InputEvent::Submit => this.submit(cx),
             InputEvent::Cancel => this.interrupt(cx),
             InputEvent::Images(images) => {
-                this.saving += 1;
-                attach::save_later(images.clone(), cx, |this, saved, cx| {
-                    this.saving -= 1;
+                let asked = images.len();
+                attach::mark(&this.input, this.images.len() + this.saving + 1, asked, cx);
+                this.saving += asked;
+                attach::save_later(images.clone(), cx, move |this, saved, cx| {
+                    this.saving -= asked;
                     this.images.extend(saved);
                     this.keep_draft(cx);
                     if this.saving == 0 && std::mem::take(&mut this.send_saved) {
@@ -172,6 +179,20 @@ impl TranscriptView {
                     }
                     cx.notify();
                 })
+            }
+            InputEvent::Peek(at) => {
+                this.peek = *at;
+                cx.notify();
+            }
+            InputEvent::Open(n) => {
+                if let Some(path) = n.checked_sub(1).and_then(|i| this.images.get(i)) {
+                    cx.emit(TranscriptEvent::ShowMedia(path.clone()));
+                }
+            }
+            InputEvent::Unmarked(gone) => {
+                attach::drop_unmarked(&mut this.images, gone, &this.input, cx);
+                this.keep_draft(cx);
+                cx.notify();
             }
             InputEvent::Changed => {
                 this.keep_draft(cx);
@@ -197,6 +218,7 @@ impl TranscriptView {
             queued: None,
             queue: thread.queue.clone(),
             resume_at: thread.resume_at,
+            updated: None,
             cut: None,
             draft: None,
             probing: false,
@@ -209,6 +231,8 @@ impl TranscriptView {
                 .cloned()
                 .collect(),
             saving: 0,
+            peek: None,
+            lit: None,
             send_saved: false,
             list: ListState::new(0, ListAlignment::Top, px(600.)),
             rows: Vec::new(),
@@ -348,6 +372,40 @@ impl TranscriptView {
 
     pub(super) fn resume_cut(&mut self, cx: &mut Context<Self>) {
         self.offer(Prompt::text(RESUME), cx);
+    }
+
+    /// The app quit to install an update while this thread ran: once its journal shows the run
+    /// was cut off, it carries on, told what background work stopped with it.
+    pub fn pick_up_after_update(&mut self, work: Vec<String>, cx: &mut Context<Self>) {
+        self.updated = Some(work);
+        self.continue_updated(cx);
+    }
+
+    fn continue_updated(&mut self, cx: &mut Context<Self>) {
+        if self.loading || self.cut.is_none() {
+            return;
+        }
+        if let Some(work) = self.updated.take() {
+            self.offer(Prompt::text(after_update(&work)), cx);
+        }
+    }
+
+    /// The background work a run has going, as the agent would know it.
+    pub fn background_work(&self) -> Vec<String> {
+        self.model
+            .background
+            .iter()
+            .map(|t| t.label.clone())
+            .collect()
+    }
+
+    fn light(&mut self, row: usize, image: Option<usize>, cx: &mut Context<Self>) {
+        let lit = image.map(|n| (row, n));
+        let mine = self.lit.is_some_and(|(r, _)| r == row);
+        if lit != self.lit && (lit.is_some() || mine) {
+            self.lit = lit;
+            cx.notify();
+        }
     }
 
     fn keep_draft(&mut self, cx: &mut Context<Self>) {
@@ -1011,6 +1069,7 @@ impl TranscriptView {
             self.model.note(note);
         }
         self.loading = false;
+        self.continue_updated(cx);
         self.fresh = self.model.items.len();
         self.follow.snap(&self.list);
         if let Some(prompt) = self.queued.take() {
@@ -1294,6 +1353,27 @@ pub fn bind_keys(cx: &mut gpui::App) {
 const IDLE_HINT: &str = "Ask for anything";
 const CONTINUE: &str = "The usage limit has reset. Continue where you left off.";
 const RESUME: &str = "The app closed before your last run finished. Continue where you left off.";
+
+/// The prompt that picks a run back up after an update, naming the background work that stopped.
+fn after_update(work: &[String]) -> String {
+    const SHOWN: usize = 10;
+    let mut text = String::from(
+        "HyprSpace restarted to install an update while you were working. Continue where you left off.",
+    );
+    if !work.is_empty() {
+        text.push_str(
+            "\n\nThis background work stopped with it and will not report back, so start again what you still need:",
+        );
+        for label in work.iter().take(SHOWN) {
+            text.push_str("\n- ");
+            text.push_str(label);
+        }
+        if work.len() > SHOWN {
+            text.push_str(&format!("\n- and {} more", work.len() - SHOWN));
+        }
+    }
+    text
+}
 const RUNNING_HINT: &str = "Queue a message for when it finishes";
 
 impl Focusable for TranscriptView {
@@ -1305,5 +1385,21 @@ impl Focusable for TranscriptView {
 impl Render for TranscriptView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         render::view(self, window, cx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_run_picked_up_after_an_update_hears_what_stopped() {
+        assert!(!after_update(&[]).contains("background"));
+        let work: Vec<String> = (1..=12).map(|n| format!("Dev server {n}")).collect();
+        let text = after_update(&work);
+        assert!(text.starts_with("HyprSpace restarted to install an update"));
+        assert!(text.contains("\n- Dev server 1\n"));
+        assert!(text.contains("- Dev server 10\n- and 2 more"));
+        assert!(!text.contains("Dev server 11"));
     }
 }

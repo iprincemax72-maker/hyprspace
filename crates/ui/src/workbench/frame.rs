@@ -128,7 +128,14 @@ impl Root {
         let flips = self.work.dock_flips.see(open);
         let dock = (open || flips > 0).then(|| {
             let width = self.state.dock.width;
-            slide("dock", flips, open, (0., width), false, self.dock_column())
+            slide(
+                "dock",
+                &self.work.dock_flips,
+                open,
+                (0., width),
+                false,
+                self.dock_column(),
+            )
         });
         let popup = self.bar_popup(window, cx);
         div()

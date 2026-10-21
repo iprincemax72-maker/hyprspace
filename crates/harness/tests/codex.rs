@@ -62,10 +62,16 @@ async fn streams_a_reply_with_reasoning_and_tool_items() {
             command: "ls".into()
         }
     }));
+    // its output shows while it runs, then whole once it ends
+    assert!(run.contains(&RunEvent::ToolOutput {
+        id: "c1".into(),
+        text: "a.txt".into(),
+    }));
     assert!(run.contains(&RunEvent::ToolDone {
         id: "c1".into(),
         ok: true,
-        output: "a.txt".into()
+        output: "a.txt".into(),
+        images: Vec::new(),
     }));
     assert!(run.contains(&RunEvent::Tool {
         id: "f1".into(),

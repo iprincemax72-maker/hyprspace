@@ -585,6 +585,8 @@ mod tests {
             },
             done: None,
             open: false,
+            images: Vec::new(),
+            live: String::new(),
         }];
         assert_eq!(progress(&items), Some((1, 3, "Fixing the bug".into())));
     }

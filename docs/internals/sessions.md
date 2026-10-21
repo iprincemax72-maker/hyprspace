@@ -131,6 +131,13 @@ The Codex rows follow its own presets. Codex has no plan mode, so Plan reads and
   `Thread.resume_at`: the CLI's reset time, else the usage meter's spent window, else 30 minutes,
   plus a minute. When it comes, the thread gets a continue message. Any message sent before that
   cancels it.
+- **An update picks cut-off runs back up; nothing else does.** When an install starts, every
+  thread mid-run saves `Thread.updating` with its background tasks' labels. The first launch of the
+  new version opens those threads, and one whose journal shows the run was cut off gets a continue
+  message naming the background work that stopped, since the CLI never reports on it again. A
+  crash or a plain close leaves the Resume button. A copy with `HYPRSPACE_DEV` or
+  `HYPRSPACE_STATE_DIR` never picks up: it runs on copies of real threads, and would start real
+  agents on them.
 - **Delegation is an MCP tool.** A top-level structured session gets the `hyprspace` MCP server:
   our own binary as `hyprspace mcp <port> <token>`, passed to Claude as an `--mcp-config` file and
   to Codex as `config` on `thread/start`. Its one tool, `delegate`, posts to a loopback listener
@@ -151,6 +158,9 @@ the thread's `Launch.resume` when `Started` arrives, so the next prompt reopens 
   change between versions, and ours is the transcript as we drew it.
 - A crash loses only the reply that was still streaming. Journals aren't trimmed yet, and removing
   a thread leaves its journal.
+- A new `RunEvent` variant stays out of the journal unless the phone knows it. Phones read
+  journal entries in batches, and one entry the Android app can't decode drops the batch. A new
+  field is safe when it is left out while empty, as `ToolDone.images` is.
 
 ## Testing
 

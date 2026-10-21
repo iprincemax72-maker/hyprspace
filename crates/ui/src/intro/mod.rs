@@ -19,11 +19,12 @@ use crate::root::Root;
 use crate::zoom::px;
 use crate::{colors, widgets};
 
-/// The exit, after the Tauri app's: the card sinks away while the backdrop closes in to a point
-/// over the app, like an iris.
-const SINK: Duration = Duration::from_millis(380);
-const IRIS_AFTER: Duration = Duration::from_millis(120);
-const IRIS: Duration = Duration::from_millis(600);
+/// The exit: the card's contents fade first, so nothing reflows while it moves, then the empty
+/// card lifts and shrinks away as the backdrop dissolves over the app.
+const CONTENTS: Duration = Duration::from_millis(120);
+const CARD: Duration = Duration::from_millis(260);
+const BACKDROP_AFTER: Duration = Duration::from_millis(40);
+const BACKDROP: Duration = Duration::from_millis(300);
 
 const STEPS: [&str; 6] = [
     "Welcome",
@@ -93,7 +94,9 @@ impl Root {
         } else if intro.leaving.is_none() {
             intro.leaving = Some(Instant::now());
             self._intro_exit = Some(cx.spawn(async move |this, cx| {
-                cx.background_executor().timer(IRIS_AFTER + IRIS).await;
+                cx.background_executor()
+                    .timer(BACKDROP_AFTER + BACKDROP)
+                    .await;
                 let _ = this.update(cx, |r, cx| {
                     r.intro = None;
                     cx.notify();
@@ -195,28 +198,37 @@ impl Root {
                     .child(body),
             )
             .child(foot);
-        // sinks: fades and drops, faster as it goes
-        let sink = leaving.map_or(0., |d| {
-            let t = (d.as_secs_f32() / SINK.as_secs_f32()).min(1.);
-            t * t
-        });
+        let part = |d: Duration, after: Duration, span: Duration| {
+            (d.saturating_sub(after).as_secs_f32() / span.as_secs_f32()).min(1.)
+        };
+        let contents = leaving.map_or(1., |d| 1. - part(d, Duration::ZERO, CONTENTS));
+        // the card speeds up as it goes, the backdrop slows as it clears
+        let card = leaving.map_or(0., |d| part(d, Duration::ZERO, CARD).powi(3));
+        let backdrop = leaving.map_or(1., |d| (1. - part(d, BACKDROP_AFTER, BACKDROP)).powi(3));
+        let shrink = 1. - 0.06 * card;
         let frame = div()
             .id("intro")
             .occlude()
             .relative()
-            .top(px(18. * sink))
-            .opacity(1. - sink)
+            .top(px(-8. * card))
+            .opacity(1. - card)
             .flex()
-            .w(px(980.).min(size.width - px(48.)))
-            .h(px(660.).min(size.height - px(48.)))
+            .w((px(980.).min(size.width - px(48.))) * shrink)
+            .h((px(660.).min(size.height - px(48.))) * shrink)
             .rounded(px(16.))
             .border_1()
             .border_color(colors::border1())
             .bg(colors::surface2())
             .shadow(colors::shadow())
             .overflow_hidden()
-            .child(nav)
-            .child(main);
+            .child(
+                div()
+                    .flex()
+                    .size_full()
+                    .opacity(contents)
+                    .child(nav)
+                    .child(main),
+            );
         Some(
             deferred(
                 anchored().position(point(px(0.), px(0.))).child(
@@ -229,10 +241,7 @@ impl Root {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .map(|d| match leaving {
-                            None => d.bg(colors::bg()),
-                            Some(d_) => d.child(iris(d_, size)),
-                        })
+                        .bg(colors::bg().opacity(backdrop))
                         .child(frame),
                 ),
             )
@@ -315,7 +324,7 @@ impl Root {
                     .text_size(px(14.))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(colors::text1())
-                    .child(icon("sparkles", 18., colors::accent()))
+                    .child(crate::assets::logo(18.))
                     .child("HyprSpace"),
             )
             .child(div().flex().flex_col().gap(px(2.)).children(steps))
@@ -337,29 +346,4 @@ impl Root {
             )
             .into_any_element()
     }
-}
-
-/// The backdrop as a circle closing in on the middle of the window, `elapsed` into the exit. It
-/// starts wide enough to cover the corners, and a faint accent ring rides its edge.
-fn iris(elapsed: Duration, size: gpui::Size<gpui::Pixels>) -> AnyElement {
-    let t = (elapsed.saturating_sub(IRIS_AFTER).as_secs_f32() / IRIS.as_secs_f32()).min(1.);
-    // ease in and out
-    let t = if t < 0.5 {
-        4. * t * t * t
-    } else {
-        1. - (-2. * t + 2.).powi(3) / 2.
-    };
-    let z = crate::zoom::zoom();
-    let (w, h) = (f32::from(size.width) / z, f32::from(size.height) / z);
-    let r = (w.hypot(h) / 2. + 2.) * (1. - t);
-    div()
-        .absolute()
-        .left(px(w / 2. - r))
-        .top(px(h / 2. - r))
-        .size(px(2. * r))
-        .rounded_full()
-        .bg(colors::bg())
-        .border_2()
-        .border_color(colors::accent().opacity(0.45 * t.min(1. - t) * 2.))
-        .into_any_element()
 }

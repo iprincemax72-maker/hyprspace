@@ -554,6 +554,10 @@ impl Actor {
                 }
             }
             "item/completed" => self.completed(&params["item"]),
+            "item/commandExecution/outputDelta" => (self.emit)(RunEvent::ToolOutput {
+                id: text(&params["itemId"]),
+                text: text(&params["delta"]),
+            }),
             "turn/plan/updated" => {
                 let id = format!("plan-{}", text(&params["turnId"]));
                 (self.emit)(RunEvent::Tool {
@@ -564,6 +568,7 @@ impl Actor {
                     id,
                     ok: true,
                     output: String::new(),
+                    images: Vec::new(),
                 });
             }
             "thread/tokenUsage/updated" => {
@@ -634,7 +639,12 @@ impl Actor {
             tool,
         });
         let (ok, output) = items::outcome(item);
-        (self.emit)(RunEvent::ToolDone { id, ok, output });
+        (self.emit)(RunEvent::ToolDone {
+            id,
+            ok,
+            output,
+            images: items::images(item),
+        });
     }
 
     async fn turn_completed(&mut self, turn: &Value) {

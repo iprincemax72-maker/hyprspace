@@ -707,6 +707,7 @@ mod tests {
                 id: "1".into(),
                 ok: true,
                 output: "ok".into(),
+                images: Vec::new(),
             }),
             run(RunEvent::SubagentTool {
                 parent: "2".into(),
@@ -718,6 +719,7 @@ mod tests {
                 id: "3".into(),
                 ok: false,
                 output: "no".into(),
+                images: Vec::new(),
             }),
             run(RunEvent::SubagentText {
                 parent: "2".into(),

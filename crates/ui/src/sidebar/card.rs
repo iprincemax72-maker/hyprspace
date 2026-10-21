@@ -39,7 +39,7 @@ pub struct RowCard {
     pub model: SharedString,
     /// The effort it runs at, "High" or "High (default)", for a model that takes one.
     pub effort: Option<SharedString>,
-    /// When it was made and when it last did something: "today 2:14 PM (3h ago)".
+    /// How long ago it was made and last did something: "3h ago".
     pub started: Option<SharedString>,
     pub active: Option<SharedString>,
     /// Each subagent running: what it was asked, and how long it has run.

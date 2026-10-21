@@ -86,6 +86,22 @@ pub(crate) fn tool(item: &Value) -> Option<Tool> {
     })
 }
 
+/// Pictures a finished tool item gave back: an MCP tool's, or the one Codex looked at.
+pub(crate) fn images(item: &Value) -> Vec<std::path::PathBuf> {
+    match item["type"].as_str() {
+        Some("mcpToolCall") => crate::images::saved(&item["result"]),
+        Some("imageView") => {
+            let path = std::path::PathBuf::from(text(&item["path"]));
+            if path.is_file() {
+                vec![path]
+            } else {
+                Vec::new()
+            }
+        }
+        _ => Vec::new(),
+    }
+}
+
 /// Whether a finished tool item worked, and its output for display.
 pub(crate) fn outcome(item: &Value) -> (bool, String) {
     let status = item["status"].as_str().unwrap_or("completed");

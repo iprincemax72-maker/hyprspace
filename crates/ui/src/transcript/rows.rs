@@ -104,6 +104,8 @@ mod tests {
             },
             done: None,
             open: false,
+            images: Vec::new(),
+            live: String::new(),
         }
     }
 
@@ -116,6 +118,8 @@ mod tests {
             },
             done: None,
             open: false,
+            images: Vec::new(),
+            live: String::new(),
         }
     }
 

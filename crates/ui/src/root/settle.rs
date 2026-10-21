@@ -283,6 +283,58 @@ impl Root {
         }
     }
 
+    /// An update started installing: every thread mid-run is marked, with its background work, so
+    /// the new version can pick it back up. A failed install leaves the version as it was, and
+    /// marks on an unchanged version are cleared at the next launch without acting.
+    pub(crate) fn mark_updating(&mut self, cx: &mut Context<Self>) {
+        let marks: Vec<(u64, Option<Vec<String>>)> = self
+            .views
+            .iter()
+            .filter_map(|(id, view)| match view {
+                super::View::Structured(v) => {
+                    let v = v.read(cx);
+                    Some((*id, v.elapsed().map(|_| v.background_work())))
+                }
+                _ => None,
+            })
+            .collect();
+        for (id, mark) in marks {
+            if let Some(t) = self.state.thread_mut(id) {
+                t.updating = mark;
+            }
+        }
+        self.save();
+    }
+
+    /// The first launch after an update picks up the runs it cut off. A dev or test copy loads
+    /// copies of real threads, and picking those up would start real agents on them.
+    pub(crate) fn pick_up_updates(&mut self, updated: bool, cx: &mut Context<Self>) {
+        let copy = std::env::var_os("HYPRSPACE_DEV").is_some()
+            || std::env::var_os("HYPRSPACE_STATE_DIR").is_some();
+        let marked: Vec<(Thread, Vec<String>)> = self
+            .state
+            .spaces
+            .iter_mut()
+            .flat_map(|s| &mut s.threads)
+            .filter_map(|t| t.updating.take().map(|work| (t.clone(), work)))
+            .collect();
+        if marked.is_empty() {
+            return;
+        }
+        self.save();
+        if !updated || copy {
+            return;
+        }
+        for (t, work) in marked {
+            if !self.views.contains_key(&t.id) {
+                self.make_view(&t, None, true, cx);
+            }
+            if let Some(super::View::Structured(v)) = self.views.get(&t.id) {
+                v.update(cx, |v, cx| v.pick_up_after_update(work, cx));
+            }
+        }
+    }
+
     fn resume_due(&mut self, now: u64, cx: &mut Context<Self>) {
         let due: Vec<Thread> = self
             .state

@@ -95,6 +95,10 @@ pub fn bind_keys(cx: &mut App) {
         KeyBinding::new("shift-enter", Newline, c),
         KeyBinding::new("escape", Cancel, c),
     ]);
+    // Claude Code's own image paste on Windows; Option+V types a character on a Mac
+    if !cfg!(target_os = "macos") {
+        cx.bind_keys([KeyBinding::new("alt-v", Paste, c)]);
+    }
 }
 
 pub enum InputEvent {
@@ -105,6 +109,13 @@ pub enum InputEvent {
     Cancel,
     /// Images on the clipboard at a paste. Any text in the same paste is inserted as usual.
     Images(Vec<Image>),
+    /// An edit took out the last marker of these tray images, counted from 1.
+    Unmarked(Vec<usize>),
+    /// The pointer came onto an image marker (its number, and the window point at its top
+    /// left), or left it.
+    Peek(Option<(usize, Point<Pixels>)>),
+    /// Ctrl+click (Cmd on macOS) on an image marker, by its number.
+    Open(usize),
 }
 
 pub struct TextInput {
@@ -128,6 +139,7 @@ pub struct TextInput {
     grab: Option<Pixels>,
     /// How far a single line is slid left to keep the cursor in the box.
     shift: Pixels,
+    hover: Option<usize>,
 }
 
 impl EventEmitter<InputEvent> for TextInput {}
@@ -157,6 +169,7 @@ impl TextInput {
             thumb: None,
             grab: None,
             shift: Pixels::ZERO,
+            hover: None,
         }
     }
 
@@ -257,26 +270,34 @@ impl TextInput {
     }
 
     fn previous_boundary(&self, offset: usize) -> usize {
-        self.content
+        let at = self
+            .content
             .grapheme_indices(true)
             .rev()
             .find_map(|(i, _)| (i < offset).then_some(i))
-            .unwrap_or(0)
+            .unwrap_or(0);
+        snap(&self.content, at, Some(false))
     }
 
     fn next_boundary(&self, offset: usize) -> usize {
-        self.content
+        let at = self
+            .content
             .grapheme_indices(true)
             .find_map(|(i, _)| (i > offset).then_some(i))
-            .unwrap_or(self.content.len())
+            .unwrap_or(self.content.len());
+        snap(&self.content, at, Some(true))
     }
 
     fn word_left(&self, offset: usize) -> usize {
-        word_start(&self.content, offset)
+        snap(
+            &self.content,
+            word_start(&self.content, offset),
+            Some(false),
+        )
     }
 
     fn word_right(&self, offset: usize) -> usize {
-        word_end(&self.content, offset)
+        snap(&self.content, word_end(&self.content, offset), Some(true))
     }
 
     /// The offset one visual row above (`rows` = -1) or below (+1) the cursor, keeping its x.
@@ -303,8 +324,12 @@ impl TextInput {
         None
     }
 
-    /// The offset nearest `pos`, relative to the box's top left.
+    /// The offset nearest `pos`, relative to the box's top left, never inside an image marker.
     fn offset_at(&self, pos: Point<Pixels>) -> usize {
+        snap(&self.content, self.raw_offset_at(pos), None)
+    }
+
+    fn raw_offset_at(&self, pos: Point<Pixels>) -> usize {
         if pos.y < Pixels::ZERO {
             return 0;
         }
@@ -323,6 +348,27 @@ impl TextInput {
         self.content.len()
     }
 
+    /// The image marker under `pos` (window coordinates), and the window point at its top left.
+    fn marker_under(&self, pos: Point<Pixels>) -> Option<(usize, Point<Pixels>)> {
+        let b = self.bounds?;
+        if !b.contains(&pos) {
+            return None;
+        }
+        let at = self.raw_offset_at(pos - b.origin);
+        let (m, n) = crate::attach::markers(&self.content)
+            .into_iter()
+            .find(|(m, _)| m.start <= at && at < m.end)?;
+        Some((n, b.origin + self.position_of(m.start)?))
+    }
+
+    fn peek(&mut self, under: Option<(usize, Point<Pixels>)>, cx: &mut Context<Self>) {
+        let n = under.map(|(n, _)| n);
+        if n != self.hover {
+            self.hover = n;
+            cx.emit(InputEvent::Peek(under));
+        }
+    }
+
     fn mouse_offset(&self, pos: Point<Pixels>) -> usize {
         match self.bounds {
             Some(b) => self.offset_at(pos - b.origin),
@@ -331,6 +377,12 @@ impl TextInput {
     }
 
     fn replace(&mut self, range: Range<usize>, text: &str, cx: &mut Context<Self>) {
+        let range = widen(&self.content, range);
+        let cut: Vec<usize> = crate::attach::markers(&self.content)
+            .into_iter()
+            .filter(|(m, _)| range.start <= m.start && m.end <= range.end)
+            .map(|(_, n)| n)
+            .collect();
         let text = if self.multiline {
             text.replace("\r\n", "\n")
         } else {
@@ -341,7 +393,15 @@ impl TextInput {
         self.selected = at..at;
         self.reversed = false;
         self.marked = None;
+        let left = crate::attach::markers(&self.content);
+        let gone: Vec<usize> = cut
+            .into_iter()
+            .filter(|n| !left.iter().any(|(_, m)| m == n))
+            .collect();
         cx.emit(InputEvent::Changed);
+        if !gone.is_empty() {
+            cx.emit(InputEvent::Unmarked(gone));
+        }
         cx.notify();
     }
 
@@ -564,11 +624,18 @@ impl TextInput {
             cx.notify();
             return;
         }
+        if e.modifiers.secondary()
+            && let Some((n, _)) = self.marker_under(e.position)
+        {
+            self.peek(None, cx);
+            cx.emit(InputEvent::Open(n));
+            return;
+        }
         let at = self.mouse_offset(e.position);
         match e.click_count {
             2 => {
                 self.selecting = false;
-                self.selected = word_at(&self.content, at);
+                self.selected = widen(&self.content, word_at(&self.content, at));
                 self.reversed = false;
                 cx.notify();
             }
@@ -613,7 +680,10 @@ impl TextInput {
                 cx.notify();
             }
         } else if self.selecting {
+            self.peek(None, cx);
             self.select_to(self.mouse_offset(e.position), cx);
+        } else {
+            self.peek(self.marker_under(e.position), cx);
         }
     }
 }
@@ -660,6 +730,38 @@ fn word_at(text: &str, offset: usize) -> Range<usize> {
 }
 
 /// The start of the word before `offset`, skipping spaces first.
+/// `offset` moved out of an image marker it falls inside: to the marker's end when moving
+/// forward, its start when moving back, or the nearer edge for a click.
+fn snap(text: &str, offset: usize, forward: Option<bool>) -> usize {
+    for (m, _) in crate::attach::markers(text) {
+        if m.start < offset && offset < m.end {
+            return match forward {
+                Some(true) => m.end,
+                Some(false) => m.start,
+                None if offset - m.start <= m.end - offset => m.start,
+                None => m.end,
+            };
+        }
+    }
+    offset
+}
+
+/// An edit's range grown over any image marker it cuts into, so a marker goes whole. Typing at
+/// a point inside one lands after it instead.
+fn widen(text: &str, mut range: Range<usize>) -> Range<usize> {
+    for (m, _) in crate::attach::markers(text) {
+        if range.is_empty() {
+            if m.start < range.start && range.start < m.end {
+                return m.end..m.end;
+            }
+        } else if range.start < m.end && m.start < range.end {
+            range.start = range.start.min(m.start);
+            range.end = range.end.max(m.end);
+        }
+    }
+    range
+}
+
 fn word_start(text: &str, offset: usize) -> usize {
     let before = &text[..offset];
     let trimmed = before.trim_end();
@@ -703,6 +805,7 @@ impl Render for TextInput {
             text.into_any_element()
         };
         div()
+            .id("text-input")
             .w_full()
             .key_context(CONTEXT)
             .track_focus(&self.focus)
@@ -738,6 +841,11 @@ impl Render for TextInput {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::mouse_up))
             .on_mouse_move(cx.listener(Self::mouse_move))
+            .on_hover(cx.listener(|this, over: &bool, _, cx| {
+                if !over {
+                    this.peek(None, cx);
+                }
+            }))
             .child(body)
     }
 }
@@ -745,6 +853,21 @@ impl Render for TextInput {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_image_marker_moves_and_goes_as_one() {
+        let t = "see [Image 1] now";
+        assert_eq!(snap(t, 8, Some(false)), 4);
+        assert_eq!(snap(t, 8, Some(true)), 13);
+        assert_eq!(snap(t, 6, None), 4);
+        assert_eq!(snap(t, 11, None), 13);
+        assert_eq!(snap(t, 13, Some(false)), 13);
+        assert_eq!(widen(t, 12..13), 4..13);
+        assert_eq!(widen(t, 13..14), 13..14);
+        assert_eq!(widen(t, 2..6), 2..13);
+        assert_eq!(widen(t, 8..8), 13..13);
+        assert_eq!(widen(t, 4..4), 4..4);
+    }
 
     #[test]
     fn a_double_click_takes_the_word_under_it() {

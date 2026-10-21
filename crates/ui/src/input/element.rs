@@ -68,7 +68,30 @@ fn shape(
                 ..run
             },
         ],
-        None => vec![run],
+        None if input.content.is_empty() => vec![run],
+        None => {
+            let mut runs = Vec::new();
+            let mut last = 0;
+            for (range, _) in crate::attach::markers(&input.content) {
+                runs.push(TextRun {
+                    len: range.start - last,
+                    ..run.clone()
+                });
+                runs.push(TextRun {
+                    len: range.len(),
+                    color: colors::text1(),
+                    background_color: Some(colors::ink(0.1)),
+                    ..run.clone()
+                });
+                last = range.end;
+            }
+            runs.push(TextRun {
+                len: text.len() - last,
+                ..run
+            });
+            runs.retain(|r| r.len > 0);
+            runs
+        }
     };
     let font_size = style.font_size.to_pixels(window.rem_size());
     let wrap = if input.multiline { width } else { None };
@@ -302,14 +325,10 @@ impl Element for TextElement {
             for (_, line) in &prepaint.lines {
                 let h = lh * (line.wrap_boundaries().len() + 1) as f32;
                 if y + h >= seen.top() && y <= seen.bottom() {
-                    let _ = line.paint(
-                        point(bounds.left() - shift, y),
-                        lh,
-                        gpui::TextAlign::Left,
-                        None,
-                        window,
-                        cx,
-                    );
+                    let origin = point(bounds.left() - shift, y);
+                    let left = gpui::TextAlign::Left;
+                    let _ = line.paint_background(origin, lh, left, None, window, cx);
+                    let _ = line.paint(origin, lh, left, None, window, cx);
                 }
                 y += h;
             }

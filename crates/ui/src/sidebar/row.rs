@@ -23,7 +23,7 @@ use crate::assets::{icon, mark};
 use crate::colors;
 use crate::pace::Looping;
 use crate::root::{Action, MenuEntry, MenuItems, Rename, Root, Screen, View};
-use crate::time::{ago, local, local_now, now_ms, past_label, presets, to_ms, wake_short};
+use crate::time::{ago, local_now, now_ms, presets, to_ms, wake_short};
 use crate::transcript::Status;
 use crate::widgets;
 
@@ -318,12 +318,9 @@ impl Root {
         };
         let now = now_ms();
         let when = |ms: u64| {
-            (ms > 0).then(|| {
-                let at = past_label(local(ms), local_now());
-                match ago(ms, now).as_str() {
-                    "now" => format!("{at} (just now)").into(),
-                    a => format!("{at} ({a} ago)").into(),
-                }
+            (ms > 0).then(|| match ago(ms, now).as_str() {
+                "now" => "just now".into(),
+                a => format!("{a} ago").into(),
             })
         };
         Some(RowCard {

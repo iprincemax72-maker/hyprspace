@@ -78,13 +78,21 @@ fn entries(text: &str) -> Vec<Entry> {
                 }
                 for b in blocks.iter().filter(|b| b["type"] == "tool_result") {
                     let id = b["tool_use_id"].as_str().unwrap_or_default().to_string();
-                    let output = if agents.contains(&id) {
-                        tools::report(&b["content"])
+                    let (output, images) = if agents.contains(&id) {
+                        (tools::report(&b["content"]), Vec::new())
                     } else {
-                        tools::result_text(&b["content"])
+                        (
+                            tools::result_text(&b["content"]),
+                            crate::images::saved(&b["content"]),
+                        )
                     };
                     let ok = b["is_error"].as_bool() != Some(true);
-                    out.push(run(RunEvent::ToolDone { id, ok, output }));
+                    out.push(run(RunEvent::ToolDone {
+                        id,
+                        ok,
+                        output,
+                        images,
+                    }));
                     last_text = false;
                 }
             }

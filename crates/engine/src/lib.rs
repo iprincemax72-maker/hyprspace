@@ -246,6 +246,7 @@ async fn serve(
                                 | RunEvent::Compacting
                                 | RunEvent::Background { .. }
                                 | RunEvent::TaskOutput { .. }
+                                | RunEvent::ToolOutput { .. }
                         )
                     }) {
                         j.record(Entry::Run {

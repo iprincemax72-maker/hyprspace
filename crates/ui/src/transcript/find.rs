@@ -79,7 +79,10 @@ impl TranscriptView {
                 InputEvent::Changed => v.refind(true, cx),
                 InputEvent::Submit => v.step_find(true, cx),
                 InputEvent::Cancel => v.close_find(window, cx),
-                InputEvent::Images(_) => {}
+                InputEvent::Images(_)
+                | InputEvent::Unmarked(_)
+                | InputEvent::Peek(_)
+                | InputEvent::Open(_) => {}
             });
             self.find = Some(Find {
                 input,

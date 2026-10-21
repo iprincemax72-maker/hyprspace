@@ -212,6 +212,10 @@ pub struct Thread {
     pub pinned: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree: Option<Worktree>,
+    /// Mid-run when an update started installing, with the background work it had going. The
+    /// first launch of the new version picks the run back up.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updating: Option<Vec<String>>,
 }
 
 /// When a snoozed thread comes back.
@@ -245,6 +249,7 @@ impl Default for Thread {
             parent: None,
             pinned: None,
             worktree: None,
+            updating: None,
         }
     }
 }

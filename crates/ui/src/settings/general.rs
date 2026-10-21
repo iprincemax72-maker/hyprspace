@@ -1,7 +1,7 @@
 // Settings, General: how a new thread starts (which agent, and how much it may do on its own),
-// when threads settle, every snoozed thread and when it wakes, and which app the Open button
-// opens a folder in. The first two are the composer's saved picks, so changing one here or in
-// the composer changes both.
+// when threads settle, every snoozed thread and when it wakes, which app the Open button opens a
+// folder in, and on macOS what agents may do outside their terminal. The first two are the
+// composer's saved picks, so changing one here or in the composer changes both.
 
 use gpui::{AnyElement, ClickEvent, Context, div, prelude::*};
 use hyprspace_proto::{Agent, Permission, Snooze};
@@ -162,7 +162,7 @@ impl Root {
             self.dropdown(Picker::Opener, opener.name(), cx)
         };
 
-        div()
+        let page = div()
             .flex()
             .flex_col()
             .gap(px(28.))
@@ -200,7 +200,9 @@ impl Root {
                     "Where the Open button goes.",
                     open_control,
                 )],
-            ))
-            .into_any_element()
+            ));
+        #[cfg(target_os = "macos")]
+        let page = page.child(self.mac_group(cx));
+        page.into_any_element()
     }
 }

@@ -1,14 +1,15 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use gpui::{
     AnyElement, App, ClickEvent, Entity, FontWeight, Global, IntoElement, KeyBinding, MouseButton,
     SharedString, actions, div, prelude::*, relative,
 };
-use hyprspace_proto::agents::SkillItem;
-use hyprspace_proto::{Agent, Client, Command, FolderCommand, SkillCommand};
+use hyprspace_proto::agents::{SkillItem, SkillKind};
+use hyprspace_proto::{Agent, Client, Command, CommandInfo, FolderCommand, SkillCommand};
 
 use crate::assets::icon;
 use crate::colors;
@@ -32,9 +33,16 @@ const SHOWN: usize = 8;
 const STALE: Duration = Duration::from_secs(60);
 const ASK_AGAIN: Duration = Duration::from_secs(10);
 
+type Chips = Rc<HashSet<String>>;
+
 #[derive(Default)]
 struct Known {
     commands: HashMap<Agent, Vec<String>>,
+    /// What a session in each folder said about its commands and skills.
+    info: HashMap<(Agent, PathBuf), Vec<CommandInfo>>,
+    /// Counts every change to the lists above, so `chips` knows when it is stale.
+    version: u64,
+    chips: HashMap<(Agent, PathBuf), (u64, Chips)>,
     files: HashMap<PathBuf, (Instant, Vec<String>)>,
     skills: HashMap<PathBuf, (Instant, Vec<SkillItem>)>,
     asked: HashMap<(PathBuf, bool), Instant>,
@@ -51,7 +59,15 @@ pub fn commands_of(agent: Agent, cx: &mut App) -> Vec<String> {
 }
 
 pub fn set_commands(agent: Agent, names: Vec<String>, cx: &mut App) {
-    cx.default_global::<Known>().commands.insert(agent, names);
+    let known = cx.default_global::<Known>();
+    known.commands.insert(agent, names);
+    known.version += 1;
+}
+
+pub fn set_info(agent: Agent, cwd: PathBuf, info: Vec<CommandInfo>, cx: &mut App) {
+    let known = cx.default_global::<Known>();
+    known.info.insert((agent, cwd), info);
+    known.version += 1;
 }
 
 pub fn set_files(cwd: PathBuf, files: Vec<String>, cx: &mut App) {
@@ -61,9 +77,9 @@ pub fn set_files(cwd: PathBuf, files: Vec<String>, cx: &mut App) {
 }
 
 pub fn set_skills(cwd: PathBuf, items: Vec<SkillItem>, cx: &mut App) {
-    cx.default_global::<Known>()
-        .skills
-        .insert(cwd, (Instant::now(), items));
+    let known = cx.default_global::<Known>();
+    known.skills.insert(cwd, (Instant::now(), items));
+    known.version += 1;
 }
 
 fn want(client: &Client, cwd: &Path, files: bool, cx: &mut App) {
@@ -146,10 +162,11 @@ impl Suggest {
         client: &Client,
         cx: &mut App,
     ) {
-        let (text, cursor) = {
-            let i = input.read(cx);
+        let chips = chip_words(agent, cwd, cx);
+        let (text, cursor) = input.update(cx, |i, _| {
+            i.set_chips(chips);
             (i.text().to_string(), i.cursor_offset())
-        };
+        });
         let found = detect(
             &text,
             cursor,
@@ -207,28 +224,50 @@ fn detect(
     cx: &mut App,
 ) -> Option<Open> {
     let before = text.get(..cursor)?;
-    if let Some(q) = before.strip_prefix('/')
-        && !q.contains(char::is_whitespace)
-    {
-        if muted == Some(0) {
-            return None;
-        }
-        want(client, cwd, false, cx);
-        let items = rank(&commands(agent, cwd, own, cx), q);
-        return (!items.is_empty()).then_some(Open {
-            kind: Kind::Command,
-            range: 0..cursor,
-            items,
-            sel: 0,
-        });
-    }
     let start = before
         .char_indices()
         .rev()
         .find(|(_, c)| c.is_whitespace())
         .map_or(0, |(i, c)| i + c.len_utf8());
-    let q = before[start..].strip_prefix('@')?;
+    let word = &before[start..];
+    // a command only where it starts the message; further in, or after `$`, only a skill, which
+    // the agent runs wherever the message names it
+    let (q, inline) = match word.strip_prefix('/') {
+        Some(q) if !path(q) => (q, start > 0),
+        Some(_) => return None,
+        None => match word.strip_prefix('$') {
+            Some(q) => (q, true),
+            None => return files(word, start..cursor, cwd, muted, client, cx),
+        },
+    };
     if muted == Some(start) {
+        return None;
+    }
+    want(client, cwd, false, cx);
+    let items = rank(&commands(agent, cwd, own, inline, cx), q);
+    (!items.is_empty()).then_some(Open {
+        kind: Kind::Command,
+        range: start..cursor,
+        items,
+        sel: 0,
+    })
+}
+
+/// A typed path, `/usr/bin` or `/c/Main`, rather than a command.
+fn path(q: &str) -> bool {
+    q.contains(['/', '\\'])
+}
+
+fn files(
+    word: &str,
+    range: Range<usize>,
+    cwd: &Path,
+    muted: Option<usize>,
+    client: &Client,
+    cx: &mut App,
+) -> Option<Open> {
+    let q = word.strip_prefix('@')?;
+    if muted == Some(range.start) {
         return None;
     }
     want(client, cwd, true, cx);
@@ -248,70 +287,152 @@ fn detect(
     let items = rank(&files, q);
     (!items.is_empty()).then_some(Open {
         kind: Kind::File,
-        range: start..cursor,
+        range,
         items,
         sel: 0,
     })
 }
 
-fn commands(agent: Agent, cwd: &Path, own: &[Item], cx: &mut App) -> Vec<Item> {
+/// What the agent takes in `cwd`: the CLI's own list when a session there gave it, then the
+/// skills and commands on disk it doesn't name, then any other name the CLI gave before. Only
+/// skills when `inline`.
+fn commands(agent: Agent, cwd: &Path, own: &[Item], inline: bool, cx: &mut App) -> Vec<Item> {
     let known = cx.default_global::<Known>();
-    let mut items: Vec<Item> = own.to_vec();
-    let skills = known
-        .skills
-        .get(cwd)
-        .map(|(_, s)| s.as_slice())
-        .unwrap_or_default()
-        .iter()
-        .map(|s| Item {
-            label: s.name.clone(),
-            detail: s.description.clone(),
-            insert: if agent == Agent::Claude || s.body.trim().is_empty() {
-                format!("/{} ", s.name)
-            } else {
-                format!("{}\n\n", s.body.trim())
-            },
-        })
-        .collect::<Vec<_>>();
-    for skill in skills {
-        if !items.iter().any(|i| i.label == skill.label) {
-            items.push(skill);
+    let mut items: Vec<Item> = if inline { Vec::new() } else { own.to_vec() };
+    let add = |items: &mut Vec<Item>, item: Item| {
+        if !items.iter().any(|i| i.label == item.label) {
+            items.push(item);
         }
-    }
-    let before_start: &[&str] = if agent == Agent::Claude {
-        &["compact"]
-    } else {
-        &[]
     };
-    let names = known
-        .commands
-        .get(&agent)
-        .cloned()
-        .unwrap_or_else(|| before_start.iter().map(|s| s.to_string()).collect());
-    for name in &names {
-        if !items.iter().any(|i| &i.label == name) {
-            items.push(Item {
-                label: name.clone(),
-                detail: String::new(),
-                insert: format!("/{name} "),
-            });
+    let listed = known.info.get(&(agent, cwd.to_path_buf()));
+    for c in listed.into_iter().flatten().filter(|c| !inline || c.skill) {
+        add(
+            &mut items,
+            Item {
+                label: c.name.clone(),
+                detail: c.description.clone(),
+                insert: insert(agent, c),
+            },
+        );
+    }
+    let on_disk = known.skills.get(cwd).map(|(_, s)| s.as_slice());
+    for s in on_disk.unwrap_or_default().iter().filter(|s| !s.hidden) {
+        if inline && s.kind != SkillKind::Skill {
+            continue;
+        }
+        add(
+            &mut items,
+            Item {
+                label: s.name.clone(),
+                detail: s.description.clone(),
+                insert: if agent == Agent::Claude || s.body.trim().is_empty() {
+                    format!("/{} ", s.name)
+                } else {
+                    format!("{}\n\n", s.body.trim())
+                },
+            },
+        );
+    }
+    if listed.is_none() {
+        // a folder no session listed yet, or one the CLI spells differently: what the agent said
+        // anywhere else still describes the same plugin and user skills
+        let elsewhere: HashMap<&str, &CommandInfo> = known
+            .info
+            .iter()
+            .filter(|((a, _), _)| *a == agent)
+            .flat_map(|(_, list)| list)
+            .map(|c| (c.name.as_str(), c))
+            .collect();
+        let before_start: &[&str] = if agent == Agent::Claude {
+            &["compact"]
+        } else {
+            &[]
+        };
+        let names = known
+            .commands
+            .get(&agent)
+            .cloned()
+            .unwrap_or_else(|| before_start.iter().map(|s| s.to_string()).collect());
+        for name in names {
+            let item = match elsewhere.get(name.as_str()) {
+                Some(c) if !inline || c.skill => Item {
+                    label: name,
+                    detail: c.description.clone(),
+                    insert: insert(agent, c),
+                },
+                _ if inline => continue,
+                _ => Item {
+                    insert: format!("/{name} "),
+                    label: name,
+                    detail: String::new(),
+                },
+            };
+            add(&mut items, item);
         }
     }
     items
 }
 
+/// Each command and skill the agent takes in `cwd`, as it is typed, for the input and the sent
+/// message to draw as chips.
+pub fn chip_words(agent: Agent, cwd: &Path, cx: &mut App) -> Chips {
+    let key = (agent, cwd.to_path_buf());
+    let known = cx.default_global::<Known>();
+    let version = known.version;
+    if let Some((at, words)) = known.chips.get(&key)
+        && *at == version
+    {
+        return words.clone();
+    }
+    let words: Chips = Rc::new(
+        commands(agent, cwd, &[], false, cx)
+            .into_iter()
+            .filter_map(|i| {
+                let word = i.insert.strip_suffix(' ')?;
+                (!word.contains(char::is_whitespace)).then(|| word.to_string())
+            })
+            .collect(),
+    );
+    let known = cx.default_global::<Known>();
+    known.chips.insert(key, (version, words.clone()));
+    words
+}
+
+/// How a command is typed: Codex names its skills with `$`, and Claude runs an MCP server's
+/// prompt, listed as `server:prompt (MCP)`, as `/mcp__server__prompt`.
+fn insert(agent: Agent, c: &CommandInfo) -> String {
+    if agent == Agent::Codex && c.path.is_some() {
+        return format!("${} ", c.name);
+    }
+    match c
+        .name
+        .strip_suffix(" (MCP)")
+        .and_then(|n| n.split_once(':'))
+    {
+        Some((server, prompt)) => format!("/mcp__{server}__{prompt} "),
+        None => format!("/{} ", c.name),
+    }
+}
+
+/// Names that start with the query first, then ones with a word that does, then any that hold
+/// it, then ones that hold its letters in order, then descriptions that hold it.
 fn rank(all: &[Item], query: &str) -> Vec<Item> {
     let q = query.to_lowercase();
     let mut scored: Vec<(u8, usize, &Item)> = all
         .iter()
         .filter_map(|item| {
             let label = item.label.to_lowercase();
+            let mut words = label.split(['-', '_', ':', ' ', '/']).skip(1);
             let score = if label.starts_with(&q) {
                 0
-            } else if label.contains(&q) {
+            } else if words.any(|w| w.starts_with(&q)) {
                 1
-            } else if item.detail.to_lowercase().contains(&q) {
+            } else if label.contains(&q) {
                 2
+            } else if in_order(&label, &q) {
+                3
+            } else if item.detail.to_lowercase().contains(&q) {
+                4
             } else {
                 return None;
             };
@@ -326,6 +447,11 @@ fn rank(all: &[Item], query: &str) -> Vec<Item> {
         .collect()
 }
 
+fn in_order(label: &str, q: &str) -> bool {
+    let mut rest = label.chars();
+    q.chars().all(|c| rest.any(|l| l == c))
+}
+
 pub fn render(
     open: &Open,
     below: bool,
@@ -336,6 +462,9 @@ pub fn render(
         let on = i == open.sel;
         let pick = pick.clone();
         let (glyph, name) = match open.kind {
+            Kind::Command if item.insert.starts_with('$') => {
+                ("square-slash", format!("${}", item.label))
+            }
             Kind::Command => ("square-slash", format!("/{}", item.label)),
             Kind::File => ("file", item.label.clone()),
         };
@@ -432,6 +561,46 @@ mod tests {
         ];
         let got: Vec<String> = rank(&all, "rev").into_iter().map(|i| i.label).collect();
         assert_eq!(got, ["review", "security-review", "init"]);
+    }
+
+    #[test]
+    fn a_word_start_or_the_letters_in_order_find_a_name() {
+        let all = [
+            item("show-me", ""),
+            item("marketing:seo-audit", ""),
+            item("unslop", ""),
+        ];
+        let got = |q: &str| -> Vec<String> { rank(&all, q).into_iter().map(|i| i.label).collect() };
+        assert_eq!(got("me")[0], "show-me");
+        assert_eq!(got("seo"), ["marketing:seo-audit"]);
+        assert_eq!(got("sm"), ["show-me"]);
+        assert!(got("zz").is_empty());
+    }
+
+    #[test]
+    fn paths_are_not_commands() {
+        assert!(path("usr/bin"));
+        assert!(path("c\\Main"));
+        assert!(!path("show-me"));
+    }
+
+    #[test]
+    fn commands_are_typed_the_way_their_agent_takes_them() {
+        let c = |name: &str, path: Option<&str>| CommandInfo {
+            name: name.into(),
+            description: String::new(),
+            skill: true,
+            path: path.map(PathBuf::from),
+        };
+        assert_eq!(insert(Agent::Claude, &c("show-me", None)), "/show-me ");
+        assert_eq!(
+            insert(Agent::Claude, &c("lualink:inspect_game (MCP)", None)),
+            "/mcp__lualink__inspect_game "
+        );
+        assert_eq!(
+            insert(Agent::Codex, &c("review", Some("/s/SKILL.md"))),
+            "$review "
+        );
     }
 
     #[test]

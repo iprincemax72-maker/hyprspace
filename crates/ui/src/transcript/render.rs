@@ -829,8 +829,13 @@ fn item(
                             ..Default::default()
                         };
                         let marks = attach::markers(text);
+                        let cwd = v.model.cwd.clone().unwrap_or_else(|| v.launch.cwd.clone());
+                        let words = crate::suggest::chip_words(v.launch.agent, &cwd, cx);
+                        let mut lit: Vec<_> = marks.iter().map(|(r, _)| r.clone()).collect();
+                        lit.extend(crate::input::chip_spans(text, &words, true));
+                        lit.sort_by_key(|r| r.start);
                         let styled = StyledText::new(body.clone())
-                            .with_highlights(marks.iter().map(|(r, _)| (r.clone(), chip)));
+                            .with_highlights(lit.into_iter().map(|r| (r, chip)));
                         let layout = styled.layout().clone();
                         let shown = if marks.is_empty() {
                             styled.into_any_element()
@@ -984,15 +989,20 @@ fn item(
                 })
                 .into_any_element()
         }
-        Item::Tool { tool, .. } if super::ask::special(&v.model.items[ix]) => {
-            match super::ask::named(tool) {
-                Some((super::ask::PLAN, input)) => {
-                    super::ask::plan_card(v, None, input, None, false, ix, cx)
-                }
-                Some((super::ask::TODO, input)) => super::ask::todo_card(input),
-                _ => main_tool(ix, tool, None, false, &[], "", cx),
+        Item::Tool {
+            tool,
+            done,
+            open,
+            images,
+            live,
+            ..
+        } if super::ask::special(&v.model.items[ix]) => match super::ask::named(tool) {
+            Some((super::ask::PLAN, input)) => {
+                super::ask::plan_card(v, None, input, None, false, ix, cx)
             }
-        }
+            Some((super::ask::TODO, input)) => super::ask::todo_card(input),
+            _ => main_tool(ix, tool, done.as_ref(), *open, images, live, cx),
+        },
         Item::Tool {
             tool,
             done,

@@ -53,6 +53,11 @@ how Claude is driven.
 - **"Chat about this" is a Deny that carries answers.** A plain Skip is a Deny with none. Claude
   gets its own clarify message with the answers so far, Codex gets a note as each answer. It
   needs no new `Answer` variant, which the phone would fail to read in the journal.
+- **The CLI names its own commands and skills.** Claude answers the `initialize` request the
+  harness sends first, and sends `system/commands_changed` after; plugin, claude.ai and MCP entries
+  are only there. Codex answers `skills/list` and sends `skills/changed`. A skill runs wherever a
+  message names it, a built-in or MCP prompt only when it starts one. The disk scan in
+  `engine/src/skills.rs` covers a folder no session has opened yet.
 - **Approvals are never auto-answered.** The user picks a permission mode, and Bypass is the way to
   skip the questions; allowing everything under Ask would make the mode a lie.
 - **Resume pins Claude's folder.** `claude --resume <id>` only finds a conversation from the folder

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::agents::Agent;
 use crate::folder::Opener;
 use crate::git::Worktree;
-use crate::run::{Launch, Permission, Prompt, RunEvent};
+use crate::run::{CommandInfo, Launch, Permission, Prompt, RunEvent};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -39,6 +39,10 @@ pub struct AppState {
     /// Whether a paired phone can reach the app, and over which networks.
     pub phone: PhonePrefs,
     pub commands: BTreeMap<String, Vec<String>>,
+    /// What each agent last said about its commands and skills, so the composer can describe
+    /// them before a session has started.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub command_info: BTreeMap<String, Vec<CommandInfo>>,
 }
 
 impl Default for AppState {
@@ -58,6 +62,7 @@ impl Default for AppState {
             settle_after: SettleAfter::default(),
             phone: PhonePrefs::default(),
             commands: BTreeMap::new(),
+            command_info: BTreeMap::new(),
         }
     }
 }
@@ -409,6 +414,9 @@ pub struct Appearance {
     pub wallpapers: Option<PathBuf>,
     /// The window lets the desktop show through, blurred.
     pub glass: bool,
+    /// The picture faded into the sidebar's top corner, as the engine drew it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sidebar_art: Option<PathBuf>,
 }
 
 /// A picture the engine copied into the app's own folder, with its effect drawn into `shown`.
@@ -486,6 +494,7 @@ impl Default for Appearance {
             effect: Effect::None,
             wallpapers: None,
             glass: false,
+            sidebar_art: None,
         }
     }
 }

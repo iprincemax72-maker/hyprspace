@@ -47,7 +47,7 @@ pub fn plan(all: &[Item], loading: bool, live: bool) -> Vec<Row> {
     while ix < all.len() {
         let item = &all[ix];
         if ask::special(item) {
-            if !todo(item) || Some(ix) == last_todo {
+            if (!todo(item) || Some(ix) == last_todo) && !ask::carded(all, ix) {
                 rows.push(Row::Item { ix, user: false });
             }
             ix += 1;

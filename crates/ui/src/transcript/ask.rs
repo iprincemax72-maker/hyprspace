@@ -29,6 +29,32 @@ pub fn special(item: &Item) -> bool {
     matches!(item, Item::Tool { tool, .. } if named(tool).is_some())
 }
 
+/// A question call whose questions also came as an approval in the same exchange: the card is
+/// the record of it, and the call's row would only repeat it.
+pub fn carded(all: &[Item], ix: usize) -> bool {
+    let question = |i: &Item| match i {
+        Item::Tool { tool, .. } | Item::Approval { tool, .. } => {
+            named(tool).is_some_and(|(n, _)| n == QUESTION)
+        }
+        _ => false,
+    };
+    if !all
+        .get(ix)
+        .is_some_and(|i| matches!(i, Item::Tool { .. }) && question(i))
+    {
+        return false;
+    }
+    let user = |i: &Item| matches!(i, Item::User { .. });
+    let from = all[..ix].iter().rposition(user).map_or(0, |u| u + 1);
+    let to = all[ix..]
+        .iter()
+        .position(user)
+        .map_or(all.len(), |u| ix + u);
+    all[from..to]
+        .iter()
+        .any(|i| matches!(i, Item::Approval { .. }) && question(i))
+}
+
 pub struct Question {
     pub header: String,
     pub text: String,
@@ -781,6 +807,38 @@ mod tests {
                 ("Extras?".into(), String::new())
             ]
         );
+    }
+
+    #[test]
+    fn a_question_with_a_card_has_no_row_of_its_own() {
+        let q = || Tool::Other {
+            name: QUESTION.into(),
+            input: "{}".into(),
+        };
+        let call = || Item::Tool {
+            id: "t".into(),
+            tool: q(),
+            done: None,
+            open: false,
+            images: Vec::new(),
+            live: String::new(),
+        };
+        let user = || Item::User {
+            text: "hi".into(),
+            images: Vec::new(),
+            steer: false,
+        };
+        let card = || Item::Approval {
+            request: "r".into(),
+            tool: q(),
+            reason: None,
+            always: false,
+            answer: None,
+            expired: false,
+        };
+        assert!(carded(&[user(), call(), card()], 1));
+        assert!(!carded(&[user(), call(), user(), card()], 1));
+        assert!(!carded(&[user(), call()], 1));
     }
 
     #[test]

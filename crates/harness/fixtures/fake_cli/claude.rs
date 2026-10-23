@@ -65,6 +65,16 @@ pub fn run(args: &[String]) {
     while let Some(msg) = read() {
         if msg["type"] == "control_request" {
             let req = &msg["request"];
+            if req["subtype"] == "initialize" {
+                emit(json!({ "type": "control_response", "response": {
+                    "subtype": "success", "request_id": msg["request_id"], "response": {
+                        "commands": [
+                            { "name": "compact", "description": "Clear history", "builtin": true },
+                            { "name": "show-me", "description": "Take a screenshot (user)" },
+                            { "name": "lualink:inspect_game (MCP)", "description": "Look around" },
+                        ] } } }));
+                continue;
+            }
             let response = if req["model"] == "nope" {
                 json!({ "subtype": "error", "request_id": msg["request_id"],
                     "error": "unknown model nope" })

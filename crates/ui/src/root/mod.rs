@@ -176,6 +176,7 @@ pub struct Root {
     pub(crate) finding: u64,
     pub(crate) background_busy: bool,
     pub(crate) background_error: Option<String>,
+    pub(crate) sidebar_art_error: Option<String>,
     /// Where a drag on the background preview started, and the picture's focus then.
     pub(crate) background_drag: Option<(gpui::Point<gpui::Pixels>, f32, f32)>,
     /// The in-app folder browser for opening a folder as a space (`crate::folders`).
@@ -369,6 +370,7 @@ impl Root {
             finding: 0,
             background_busy: false,
             background_error: None,
+            sidebar_art_error: None,
             background_drag: None,
             folder_picker: None,
             intro: None,
@@ -400,6 +402,15 @@ impl Root {
     fn route(&mut self, event: Event, window: &mut Window, cx: &mut Context<Self>) {
         match event {
             Event::State { state } => self.loaded(*state, window, cx),
+            Event::AgentCommands { agent, info } => {
+                crate::suggest::set_info(agent, PathBuf::new(), info.clone(), cx);
+                if self.state.command_info.get(agent.cli()) != Some(&info) {
+                    self.state
+                        .command_info
+                        .insert(agent.cli().to_string(), info);
+                    self.save();
+                }
+            }
             Event::Agents { agents } => {
                 for view in self.views.values() {
                     if let View::Structured(v) = view {
@@ -531,6 +542,7 @@ impl Root {
             } => self.delegate(request, parent, ask, cx),
             Event::Folder(e) => self.folder_event(e, cx),
             Event::Background(result) => self.background_arrived(result, window, cx),
+            Event::SidebarArt(result) => self.sidebar_art_arrived(result, cx),
             Event::Usage(e) => self.limits.update(cx, |l, cx| l.event(e, cx)),
             Event::Skills(e) => {
                 if let hyprspace_proto::SkillEvent::List { cwd, items } = &e {
@@ -688,6 +700,9 @@ impl Root {
         ] {
             if let Some(names) = self.state.commands.get(agent.cli()) {
                 crate::suggest::set_commands(agent, names.clone(), cx);
+            }
+            if let Some(info) = self.state.command_info.get(agent.cli()) {
+                crate::suggest::set_info(agent, std::path::PathBuf::new(), info.clone(), cx);
             }
         }
         if self.state.settle_archived() {
@@ -847,7 +862,9 @@ impl Root {
             if state.active.is_some_and(|id| id >= crate::machines::FIRST) {
                 state.active = None;
             }
-            self.client.send(Command::SaveState { state });
+            self.client.send(Command::SaveState {
+                state: Box::new(state),
+            });
         }
     }
 }

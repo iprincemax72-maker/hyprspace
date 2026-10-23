@@ -100,6 +100,44 @@ impl Requests {
         });
     }
 
+    /// Claude's commands and skills, from a CLI that is only asked `initialize`: it lists them
+    /// without sending a request or saving a conversation, and closes once they are in.
+    pub fn list_commands(&self) {
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let (got, mut rx) = tokio::sync::mpsc::unbounded_channel();
+            let emit: hyprspace_harness::Emit = Box::new(move |e| {
+                let _ = got.send(e);
+            });
+            let launch = hyprspace_proto::Launch::new(Agent::Claude, crate::home_dir());
+            let Ok(session) = hyprspace_harness::for_agent(Agent::Claude).start(launch, emit)
+            else {
+                return;
+            };
+            let listed = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+                while let Some(e) = rx.recv().await {
+                    if let hyprspace_proto::RunEvent::Commands { info, .. } = e
+                        && !info.is_empty()
+                    {
+                        return Some(info);
+                    }
+                }
+                None
+            })
+            .await;
+            drop(session);
+            if let Ok(Some(info)) = listed {
+                Self::send(
+                    &tx,
+                    Event::AgentCommands {
+                        agent: Agent::Claude,
+                        info,
+                    },
+                );
+            }
+        });
+    }
+
     pub fn list_resumable(&self, agent: Agent, cwd: PathBuf) {
         let tx = self.tx.clone();
         tokio::task::spawn_blocking(move || {

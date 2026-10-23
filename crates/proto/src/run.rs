@@ -77,6 +77,22 @@ pub struct Delegation {
     pub task: String,
 }
 
+/// One slash command or skill an agent CLI takes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandInfo {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+    /// A skill, which the agent runs wherever a message names it. Anything else runs only when
+    /// it starts the message.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub skill: bool,
+    /// A Codex skill's file, sent with a turn whose message names it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<PathBuf>,
+}
+
 /// One message from the user: text plus image files to attach.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -107,9 +123,12 @@ pub enum RunEvent {
         thread: String,
         cwd: PathBuf,
     },
-    /// The slash commands and skills the CLI takes, without their slash. Not journaled.
+    /// The slash commands and skills the CLI takes, without their slash. Not journaled. `info`
+    /// says more about each, when the CLI does; a computer on an older version reads `names`.
     Commands {
         names: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        info: Vec<CommandInfo>,
     },
     /// A piece of the reply.
     Text {

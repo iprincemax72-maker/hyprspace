@@ -23,6 +23,7 @@ pub mod pty;
 mod requests;
 mod running;
 pub mod sessions;
+mod sidebar_art;
 pub mod skills;
 pub mod terminal;
 mod update;
@@ -429,7 +430,10 @@ async fn serve(
             }
             Command::LoadState => requests.load_state(),
             Command::SaveState { state } => block_in_place(|| requests.save_state(&state)),
-            Command::LoadAgents => requests.load_agents(),
+            Command::LoadAgents => {
+                requests.load_agents();
+                requests.list_commands();
+            }
             Command::ListResumable { agent, cwd } => requests.list_resumable(agent, cwd),
             Command::Clone {
                 request,
@@ -521,6 +525,14 @@ async fn serve(
                     let _ = tx.unbounded_send(Event::Background(background::set_bytes(
                         &dir, &name, &bytes, effect,
                     )));
+                });
+            }
+            Command::SetSidebarArt { source } => {
+                let tx = tx.clone();
+                tokio::task::spawn_blocking(move || {
+                    let dir = persist::state_dir().join("sidebar");
+                    let drawn = sidebar_art::set(&dir, source.as_deref());
+                    let _ = tx.unbounded_send(Event::SidebarArt(drawn));
                 });
             }
             Command::Restyle { background, effect } => {
@@ -660,7 +672,7 @@ mod tests {
                 other => panic!("unexpected {other:?}"),
             }
             client.send(Command::SaveState {
-                state: state.clone(),
+                state: Box::new(state.clone()),
             });
             let j = journal::Journal::open(&journal::path(&dir.path().join("journals"), "t-1"));
             j.record(Entry::Prompt {

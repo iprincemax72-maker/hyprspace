@@ -9,7 +9,9 @@
 mod element;
 mod handler;
 
+use std::collections::HashSet;
 use std::ops::Range;
+use std::rc::Rc;
 
 use gpui::{
     App, Bounds, ClipboardEntry, ClipboardItem, Context, CursorStyle, EventEmitter, FocusHandle,
@@ -140,6 +142,9 @@ pub struct TextInput {
     /// How far a single line is slid left to keep the cursor in the box.
     shift: Pixels,
     hover: Option<usize>,
+    /// Words drawn as chips and edited whole: the skills and commands the agent takes, as they
+    /// are typed.
+    chips: Rc<HashSet<String>>,
 }
 
 impl EventEmitter<InputEvent> for TextInput {}
@@ -170,6 +175,7 @@ impl TextInput {
             grab: None,
             shift: Pixels::ZERO,
             hover: None,
+            chips: Rc::default(),
         }
     }
 
@@ -198,6 +204,21 @@ impl TextInput {
         let text = next.map(|i| self.history[i].clone()).unwrap_or_default();
         self.set_text(text, cx);
         true
+    }
+
+    pub fn set_chips(&mut self, chips: Rc<HashSet<String>>) {
+        self.chips = chips;
+    }
+
+    /// The image markers and chips, each moved over and deleted as one.
+    fn atoms(&self) -> Vec<Range<usize>> {
+        let mut atoms: Vec<Range<usize>> = crate::attach::markers(&self.content)
+            .into_iter()
+            .map(|(r, _)| r)
+            .collect();
+        atoms.extend(chip_spans(&self.content, &self.chips, false));
+        atoms.sort_by_key(|r| r.start);
+        atoms
     }
 
     pub fn text(&self) -> &str {
@@ -276,7 +297,7 @@ impl TextInput {
             .rev()
             .find_map(|(i, _)| (i < offset).then_some(i))
             .unwrap_or(0);
-        snap(&self.content, at, Some(false))
+        snap(&self.atoms(), at, Some(false))
     }
 
     fn next_boundary(&self, offset: usize) -> usize {
@@ -285,19 +306,19 @@ impl TextInput {
             .grapheme_indices(true)
             .find_map(|(i, _)| (i > offset).then_some(i))
             .unwrap_or(self.content.len());
-        snap(&self.content, at, Some(true))
+        snap(&self.atoms(), at, Some(true))
     }
 
     fn word_left(&self, offset: usize) -> usize {
         snap(
-            &self.content,
+            &self.atoms(),
             word_start(&self.content, offset),
             Some(false),
         )
     }
 
     fn word_right(&self, offset: usize) -> usize {
-        snap(&self.content, word_end(&self.content, offset), Some(true))
+        snap(&self.atoms(), word_end(&self.content, offset), Some(true))
     }
 
     /// The offset one visual row above (`rows` = -1) or below (+1) the cursor, keeping its x.
@@ -326,7 +347,7 @@ impl TextInput {
 
     /// The offset nearest `pos`, relative to the box's top left, never inside an image marker.
     fn offset_at(&self, pos: Point<Pixels>) -> usize {
-        snap(&self.content, self.raw_offset_at(pos), None)
+        snap(&self.atoms(), self.raw_offset_at(pos), None)
     }
 
     fn raw_offset_at(&self, pos: Point<Pixels>) -> usize {
@@ -377,7 +398,7 @@ impl TextInput {
     }
 
     fn replace(&mut self, range: Range<usize>, text: &str, cx: &mut Context<Self>) {
-        let range = widen(&self.content, range);
+        let range = widen(&self.atoms(), range);
         let cut: Vec<usize> = crate::attach::markers(&self.content)
             .into_iter()
             .filter(|(m, _)| range.start <= m.start && m.end <= range.end)
@@ -635,7 +656,7 @@ impl TextInput {
         match e.click_count {
             2 => {
                 self.selecting = false;
-                self.selected = widen(&self.content, word_at(&self.content, at));
+                self.selected = widen(&self.atoms(), word_at(&self.content, at));
                 self.reversed = false;
                 cx.notify();
             }
@@ -730,10 +751,10 @@ fn word_at(text: &str, offset: usize) -> Range<usize> {
 }
 
 /// The start of the word before `offset`, skipping spaces first.
-/// `offset` moved out of an image marker it falls inside: to the marker's end when moving
-/// forward, its start when moving back, or the nearer edge for a click.
-fn snap(text: &str, offset: usize, forward: Option<bool>) -> usize {
-    for (m, _) in crate::attach::markers(text) {
+/// `offset` moved out of an image marker or chip it falls inside: to its end when moving forward,
+/// its start when moving back, or the nearer edge for a click.
+fn snap(atoms: &[Range<usize>], offset: usize, forward: Option<bool>) -> usize {
+    for m in atoms {
         if m.start < offset && offset < m.end {
             return match forward {
                 Some(true) => m.end,
@@ -746,10 +767,10 @@ fn snap(text: &str, offset: usize, forward: Option<bool>) -> usize {
     offset
 }
 
-/// An edit's range grown over any image marker it cuts into, so a marker goes whole. Typing at
+/// An edit's range grown over any image marker or chip it cuts into, so it goes whole. Typing at
 /// a point inside one lands after it instead.
-fn widen(text: &str, mut range: Range<usize>) -> Range<usize> {
-    for (m, _) in crate::attach::markers(text) {
+fn widen(atoms: &[Range<usize>], mut range: Range<usize>) -> Range<usize> {
+    for m in atoms {
         if range.is_empty() {
             if m.start < range.start && range.start < m.end {
                 return m.end..m.end;
@@ -760,6 +781,29 @@ fn widen(text: &str, mut range: Range<usize>) -> Range<usize> {
         }
     }
     range
+}
+
+/// Where `text` has one of `words` as a word of its own. A word at the very end counts only when
+/// `end` does: in the box, a name still being typed edits as plain text until a space follows.
+pub fn chip_spans(text: &str, words: &HashSet<String>, end: bool) -> Vec<Range<usize>> {
+    let mut out = Vec::new();
+    if words.is_empty() {
+        return out;
+    }
+    let mut start = None;
+    for (i, c) in text.char_indices().chain([(text.len(), ' ')]) {
+        if !c.is_whitespace() {
+            start = start.or(Some(i));
+            continue;
+        }
+        if let Some(s) = start.take()
+            && (i < text.len() || end)
+            && words.contains(&text[s..i])
+        {
+            out.push(s..i);
+        }
+    }
+    out
 }
 
 fn word_start(text: &str, offset: usize) -> usize {
@@ -855,8 +899,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_skill_is_a_chip_once_a_space_follows_it() {
+        let words: HashSet<String> = ["/show-me".to_string(), "$review".to_string()].into();
+        let t = "run /show-me then $review";
+        assert_eq!(chip_spans(t, &words, false), vec![4..12]);
+        assert_eq!(chip_spans(t, &words, true), [4..12, 18..25]);
+        assert!(chip_spans("a /show-mes b", &words, true).is_empty());
+        let atoms = chip_spans(t, &words, false);
+        assert_eq!(snap(&atoms, 7, Some(false)), 4);
+        assert_eq!(widen(&atoms, 11..12), 4..12);
+    }
+
+    #[test]
     fn an_image_marker_moves_and_goes_as_one() {
-        let t = "see [Image 1] now";
+        let atoms: Vec<Range<usize>> = crate::attach::markers("see [Image 1] now")
+            .into_iter()
+            .map(|(r, _)| r)
+            .collect();
+        let t = &atoms[..];
         assert_eq!(snap(t, 8, Some(false)), 4);
         assert_eq!(snap(t, 8, Some(true)), 13);
         assert_eq!(snap(t, 6, None), 4);

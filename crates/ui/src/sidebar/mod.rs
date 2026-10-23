@@ -30,7 +30,7 @@ use gpui::{
     AnyElement, ClickEvent, Context, DispatchPhase, DragMoveEvent, Entity, ExternalPaths,
     Focusable, FontWeight, HitboxBehavior, IntoElement, ListAlignment, ListOffset, ListState,
     MouseButton, MouseDownEvent, Pixels, ScrollWheelEvent, Subscription, Transformation,
-    WeakEntity, Window, canvas, div, list, percentage, prelude::*,
+    WeakEntity, Window, canvas, div, img, list, percentage, prelude::*,
 };
 use hyprspace_proto::{Space, Thread};
 use hyprspace_theme::MONO;
@@ -674,6 +674,15 @@ impl Root {
     pub(crate) fn sidebar(&mut self, rows: AnyElement, cx: &mut Context<Self>) -> AnyElement {
         let q = self.search.read(cx).text().trim().to_lowercase();
         let width = self.state.sidebar_width.clamp(MIN_WIDTH, MAX_WIDTH);
+        // the corner picture sits behind everything, faded into the sidebar's own color
+        let art = self.state.appearance.sidebar_art.clone().map(|path| {
+            img(path)
+                .absolute()
+                .top_0()
+                .left_0()
+                .max_w(px(width))
+                .opacity(if colors::theme().dark { 0.32 } else { 0.22 })
+        });
         div()
             .relative()
             .flex_none()
@@ -684,6 +693,8 @@ impl Root {
             .bg(colors::bg())
             .border_r_1()
             .border_color(colors::border0())
+            .overflow_hidden()
+            .children(art)
             .child(self.nav_row(&q, cx))
             .child(
                 div()

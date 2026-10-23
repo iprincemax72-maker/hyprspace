@@ -52,6 +52,9 @@ pub struct SkillItem {
     pub body: String,
     pub scope: SkillScope,
     pub kind: SkillKind,
+    /// `user-invocable: false`: only the agent runs it, so the composer doesn't offer it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
 }
 
 /// An agent CLI the app can start, as a structured session or in a terminal.

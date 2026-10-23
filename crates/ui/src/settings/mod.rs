@@ -15,6 +15,7 @@ mod machines;
 mod phone;
 mod picker;
 mod shortcuts;
+mod sidebar_art;
 
 use std::cell::RefCell;
 use std::collections::HashMap;

@@ -146,7 +146,7 @@ pub enum Command {
     /// Answered with `Event::State`.
     LoadState,
     SaveState {
-        state: AppState,
+        state: Box<AppState>,
     },
     /// Which agents are installed and what they can start with. Answered with `Event::Agents`.
     LoadAgents,
@@ -184,6 +184,11 @@ pub enum Command {
         name: String,
         bytes: Vec<u8>,
         effect: Effect,
+    },
+    /// Fade a picture into the sidebar's corner, or clear it with None. Answered with
+    /// `Event::SidebarArt`.
+    SetSidebarArt {
+        source: Option<PathBuf>,
     },
     /// Draw `background` again with `effect`.
     Restyle {
@@ -288,6 +293,12 @@ pub enum Event {
     Agents {
         agents: Vec<AgentInfo>,
     },
+    /// An agent's commands and skills, asked once at start so the composer can describe them
+    /// before any session has run.
+    AgentCommands {
+        agent: Agent,
+        info: Vec<crate::run::CommandInfo>,
+    },
     Resumable {
         agent: Agent,
         cwd: PathBuf,
@@ -306,6 +317,8 @@ pub enum Event {
     Folder(FolderEvent),
     /// A background ready to show, or why it couldn't be.
     Background(Result<Background, String>),
+    /// The sidebar's corner picture as drawn, None once cleared, or why it couldn't be.
+    SidebarArt(Result<Option<PathBuf>, String>),
     Usage(UsageEvent),
     Skills(SkillEvent),
     Update(UpdateEvent),
@@ -395,7 +408,7 @@ mod tests {
             },
             Command::LoadState,
             Command::SaveState {
-                state: AppState::default(),
+                state: Box::default(),
             },
             Command::LoadAgents,
             Command::ListResumable {

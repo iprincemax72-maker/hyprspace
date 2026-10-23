@@ -616,11 +616,17 @@ impl Root {
                 self.state.dock.tab = hyprspace_proto::state::DockTab::Git;
                 self.save();
             }
-            TranscriptEvent::Commands(agent, names) => {
-                if self.state.commands.get(agent.cli()) != Some(names) {
-                    self.state
-                        .commands
-                        .insert(agent.cli().to_string(), names.clone());
+            TranscriptEvent::Commands(agent, names, info) => {
+                let key = agent.cli().to_string();
+                let mut changed = self.state.commands.get(&key) != Some(names);
+                if changed {
+                    self.state.commands.insert(key.clone(), names.clone());
+                }
+                if !info.is_empty() && self.state.command_info.get(&key) != Some(info) {
+                    self.state.command_info.insert(key, info.clone());
+                    changed = true;
+                }
+                if changed {
                     self.save();
                 }
             }

@@ -9,11 +9,13 @@ use gpui::{
 use hyprspace_proto::{Opener, ThreadKind};
 use hyprspace_theme::MONO;
 
+use std::path::Path;
+
 use super::header::{opener_logo, short};
 use super::{ToggleDock, ToggleTerminal};
 use crate::assets::{icon, mark};
 use crate::colors;
-use crate::root::{Action, Root};
+use crate::root::{Action, Root, same_folder};
 use crate::widgets;
 use crate::zoom::px;
 
@@ -35,6 +37,19 @@ fn bar_button(id: &'static str, name: &str, on: bool) -> gpui::Stateful<gpui::Di
             14.,
             if on { colors::text1() } else { colors::text2() },
         ))
+}
+
+/// A folder as the bar names it: its last two parts, except for No project, whose own folder says
+/// nothing and whose threads' folders go by their own names.
+fn place(path: &Path) -> Option<String> {
+    let scratch = crate::root::scratch_root();
+    if same_folder(path, &scratch) {
+        return None;
+    }
+    if path.parent().is_some_and(|p| same_folder(p, &scratch)) {
+        return Some(crate::root::folder_name(path));
+    }
+    Some(short(path))
 }
 
 impl Root {
@@ -103,13 +118,12 @@ impl Root {
             Some((title, launch)) => (
                 Some(mark(launch.agent, 14., colors::brand(launch.agent).0)),
                 title,
-                Some(format!(
-                    "{} · {}",
-                    short(&launch.cwd),
-                    self.model_label(&launch)
-                )),
+                Some(match place(&launch.cwd) {
+                    Some(place) => format!("{place} · {}", self.model_label(&launch)),
+                    None => self.model_label(&launch),
+                }),
             ),
-            None => (None, s.name.clone(), folder.as_deref().map(short)),
+            None => (None, s.name.clone(), folder.as_deref().and_then(place)),
         };
         let drawer = self
             .structured_on_screen()

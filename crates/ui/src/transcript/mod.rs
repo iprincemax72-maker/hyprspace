@@ -50,7 +50,11 @@ pub enum TranscriptEvent {
     Draft(String, Vec<PathBuf>),
     SwitchFailed,
     ShowMedia(PathBuf),
-    Commands(hyprspace_proto::Agent, Vec<String>),
+    Commands(
+        hyprspace_proto::Agent,
+        Vec<String>,
+        Vec<hyprspace_proto::CommandInfo>,
+    ),
     Open(hyprspace_proto::Pane),
     ViewChanges,
     NewThread,
@@ -983,9 +987,21 @@ impl TranscriptView {
             RunEvent::Started { .. } => self.probing = false,
             _ => {}
         }
-        if let RunEvent::Commands { names } = &event {
+        if let RunEvent::Commands { names, info } = &event {
             crate::suggest::set_commands(self.launch.agent, names.clone(), cx);
-            cx.emit(TranscriptEvent::Commands(self.launch.agent, names.clone()));
+            if !info.is_empty() {
+                crate::suggest::set_info(
+                    self.launch.agent,
+                    self.launch.cwd.clone(),
+                    info.clone(),
+                    cx,
+                );
+            }
+            cx.emit(TranscriptEvent::Commands(
+                self.launch.agent,
+                names.clone(),
+                info.clone(),
+            ));
         }
         if let RunEvent::Started { thread, cwd, .. } = &event {
             self.repicked = false;

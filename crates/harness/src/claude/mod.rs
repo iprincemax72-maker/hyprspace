@@ -24,7 +24,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use hyprspace_proto::{
-    Agent, Launch, Permission, Prompt, RunEvent, RunStatus, Task, TaskKind, Tool,
+    Agent, CommandInfo, Launch, Permission, Prompt, RunEvent, RunStatus, Task, TaskKind, Tool,
 };
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -308,6 +308,9 @@ type Lines = tokio::io::Lines<BufReader<tokio::process::ChildStdout>>;
 
 impl Actor {
     async fn serve(mut self, mut lines: Lines, mut rx: mpsc::UnboundedReceiver<Input>) {
+        // its reply lists every command and skill, plugins' included, with what each does
+        let hello = json!({ "subtype": "initialize" });
+        self.write(wire::control_line("hs-init", hello)).await;
         loop {
             let wake = self.run.as_ref().and_then(|r| {
                 let held = r.held.as_ref().map(|(_, at)| *at);
@@ -538,7 +541,10 @@ impl Actor {
                 });
                 let names = commands(&v);
                 if !names.is_empty() {
-                    (self.emit)(RunEvent::Commands { names });
+                    (self.emit)(RunEvent::Commands {
+                        names,
+                        info: Vec::new(),
+                    });
                 }
             }
             // the CLI starts every turn with an init; one with no run live is a turn it took
@@ -567,6 +573,10 @@ impl Actor {
                 self.background = tasks.clone();
                 (self.emit)(RunEvent::Background { tasks })
             }
+            "control_response" if v["response"]["request_id"] == "hs-init" => {
+                self.listed(&v["response"]["response"]["commands"])
+            }
+            "system" if v["subtype"] == "commands_changed" => self.listed(&v["commands"]),
             "control_response" if output_of(&v).is_some() => {
                 if v["response"]["subtype"] == "success" {
                     let reply = &v["response"]["response"];
@@ -693,6 +703,30 @@ impl Actor {
             }
             "result" => self.result(v),
             _ => {}
+        }
+    }
+
+    /// The CLI's commands and skills. A built-in command or an MCP server's prompt runs only
+    /// when it starts a message; anything else is a skill the agent runs wherever it is named.
+    fn listed(&mut self, list: &Value) {
+        let info: Vec<CommandInfo> = list
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|c| {
+                let name = c["name"].as_str()?.trim_start_matches('/').to_string();
+                let skill = c["builtin"] != true && !name.ends_with(" (MCP)");
+                Some(CommandInfo {
+                    description: text(&c["description"]),
+                    skill,
+                    path: None,
+                    name,
+                })
+            })
+            .collect();
+        if !info.is_empty() {
+            let names = info.iter().map(|c| c.name.clone()).collect();
+            (self.emit)(RunEvent::Commands { names, info });
         }
     }
 

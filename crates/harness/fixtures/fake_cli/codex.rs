@@ -102,6 +102,18 @@ pub fn run() {
             reply(&msg["id"], json!({ "data": [], "nextCursor": null }));
             continue;
         }
+        if msg["method"] == "skills/list" {
+            reply(
+                &msg["id"],
+                json!({ "data": [{ "cwd": cwd, "errors": [], "skills": [
+                { "name": "fake-skill", "description": "Does fake things", "enabled": true,
+                  "path": "/skills/fake-skill/SKILL.md", "scope": "user" },
+                { "name": "off-skill", "description": "Turned off", "enabled": false,
+                  "path": "/skills/off-skill/SKILL.md", "scope": "user" },
+            ] }] }),
+            );
+            continue;
+        }
         if msg["method"] != "turn/start" {
             continue;
         }

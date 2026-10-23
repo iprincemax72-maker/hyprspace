@@ -27,6 +27,27 @@ fn start(cwd: &Path) -> (Session, common::Events) {
 }
 
 #[tokio::test]
+async fn lists_its_skills_and_sends_the_ones_a_message_names() {
+    let dir = tempfile::tempdir().unwrap();
+    let (session, mut events) = start(dir.path());
+    let listed = events
+        .until(|e| matches!(e, RunEvent::Commands { .. }))
+        .await;
+    let Some(RunEvent::Commands { info, .. }) = listed.last() else {
+        panic!()
+    };
+    let names: Vec<&str> = info.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, ["fake-skill"], "a turned-off skill stays out");
+    assert!(info[0].skill && info[0].description == "Does fake things");
+    session.send(Prompt::text("args $fake-skill"));
+    let said = text(&events.run().await);
+    let seen: serde_json::Value = serde_json::from_str(&said).unwrap();
+    let input = &seen["turn"]["input"];
+    assert_eq!(input[1]["type"], "skill", "{input}");
+    assert_eq!(input[1]["name"], "fake-skill");
+}
+
+#[tokio::test]
 async fn streams_a_reply_with_reasoning_and_tool_items() {
     let dir = tempfile::tempdir().unwrap();
     let (session, mut events) = start(dir.path());

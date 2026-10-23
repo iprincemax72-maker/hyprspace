@@ -72,7 +72,7 @@ fn shape(
         None => {
             let mut runs = Vec::new();
             let mut last = 0;
-            for (range, _) in crate::attach::markers(&input.content) {
+            for range in input.atoms() {
                 runs.push(TextRun {
                     len: range.start - last,
                     ..run.clone()

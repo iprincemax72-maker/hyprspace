@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use hyprspace_proto::{
-    Agent, Answer, Launch, Permission, Prompt, Rewind, RunEvent, RunStatus, Tool,
+    Agent, Answer, CommandInfo, Launch, Permission, Prompt, Rewind, RunEvent, RunStatus, Tool,
 };
 use serde_json::{Value, json};
 use tokio::process::Child;
@@ -99,9 +99,10 @@ fn thread_request(launch: &Launch, mcp: Option<&crate::Mcp>, fork: bool) -> (&'s
     }
 }
 
-/// Prompts as app-server input: each one's text, then its images as local files. Any other
-/// attached file is named in the text, for the agent to open itself.
-fn input(prompts: &[Prompt]) -> Value {
+/// Prompts as app-server input: each one's text, then its images as local files, then the skills
+/// it names as `$name`, as Codex's own composer sends them. Any other attached file is named in
+/// the text, for the agent to open itself.
+fn input(prompts: &[Prompt], skills: &[CommandInfo]) -> Value {
     let mut out = Vec::new();
     for p in prompts {
         let (images, files): (Vec<_>, Vec<_>) = p.images.iter().partition(|f| image(f));
@@ -113,8 +114,24 @@ fn input(prompts: &[Prompt]) -> Value {
         for image in images {
             out.push(json!({ "type": "localImage", "path": image }));
         }
+        for s in skills.iter().filter(|s| named(&p.text, &s.name)) {
+            if let Some(path) = &s.path {
+                out.push(json!({ "type": "skill", "name": s.name, "path": path }));
+            }
+        }
     }
     Value::Array(out)
+}
+
+/// Whether `text` names the skill as `$name`, as a word of its own.
+fn named(text: &str, name: &str) -> bool {
+    let mention = format!("${name}");
+    text.match_indices(&mention).any(|(at, _)| {
+        let before = text[..at].chars().next_back();
+        let after = text[at + mention.len()..].chars().next();
+        before.is_none_or(char::is_whitespace)
+            && after.is_none_or(|c| !(c.is_alphanumeric() || c == '-' || c == '_' || c == ':'))
+    })
 }
 
 fn image(path: &std::path::Path) -> bool {
@@ -150,6 +167,7 @@ impl Harness for Codex {
             streamed: HashSet::new(),
             last_text: None,
             last_thought: None,
+            skills: Vec::new(),
         };
         Ok(Session::new(tx, tokio::spawn(actor.serve(incoming, rx))))
     }
@@ -195,6 +213,8 @@ struct Actor {
     streamed: HashSet<String>,
     last_text: Option<String>,
     last_thought: Option<(String, u64)>,
+    /// Codex's skills for this folder, from `skills/list`.
+    skills: Vec<CommandInfo>,
 }
 
 impl Actor {
@@ -277,7 +297,41 @@ impl Actor {
             thread: self.thread.clone(),
             cwd: cwd.unwrap_or_else(|| self.launch.cwd.clone()),
         });
+        self.list_skills().await;
         Ok(())
+    }
+
+    /// Codex's skills for this folder, to offer in the composer and to send with a turn whose
+    /// message names one as `$name`.
+    async fn list_skills(&mut self) {
+        let params = json!({ "cwds": [self.launch.cwd] });
+        let Ok(listed) = self.rpc.request("skills/list", params).await else {
+            return;
+        };
+        self.skills = listed["data"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .flat_map(|entry| entry["skills"].as_array().cloned().unwrap_or_default())
+            .filter(|s| s["enabled"] != false)
+            .filter_map(|s| {
+                Some(CommandInfo {
+                    name: s["name"].as_str()?.to_string(),
+                    description: s["interface"]["shortDescription"]
+                        .as_str()
+                        .or(s["shortDescription"].as_str())
+                        .or(s["description"].as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                    skill: true,
+                    path: s["path"].as_str().map(PathBuf::from),
+                })
+            })
+            .collect();
+        (self.emit)(RunEvent::Commands {
+            names: self.skills.iter().map(|s| s.name.clone()).collect(),
+            info: self.skills.clone(),
+        });
     }
 
     async fn rewind(&mut self, rewind: &Rewind) {
@@ -337,7 +391,7 @@ impl Actor {
     fn turn_params(&self, prompts: &[Prompt]) -> Value {
         let mut p = json!({
             "threadId": self.thread,
-            "input": input(prompts),
+            "input": input(prompts, &self.skills),
             // without it codex thinks in silence: no reasoning summary streams
             "summary": "auto",
         });
@@ -452,7 +506,7 @@ impl Actor {
         let params = json!({
             "threadId": self.thread,
             "expectedTurnId": turn,
-            "input": input(std::slice::from_ref(&prompt)),
+            "input": input(std::slice::from_ref(&prompt), &self.skills),
         });
         match self.rpc.request("turn/steer", params).await {
             Ok(_) => (self.emit)(RunEvent::Steered),
@@ -528,6 +582,7 @@ impl Actor {
             return;
         }
         match method {
+            "skills/changed" => self.list_skills().await,
             "turn/started" => {
                 if let Some(run) = self.run.as_mut() {
                     run.turn = params["turn"]["id"].as_str().map(str::to_string);
@@ -901,14 +956,41 @@ mod tests {
     }
 
     #[test]
+    fn a_named_skill_goes_with_its_text() {
+        let skill = |name: &str| CommandInfo {
+            name: name.into(),
+            description: String::new(),
+            skill: true,
+            path: Some(PathBuf::from(format!("/s/{name}/SKILL.md"))),
+        };
+        let skills = [skill("review"), skill("review-pr")];
+        let v = input(
+            &[Prompt::text("run $review-pr then $review, not $reviewed")],
+            &skills,
+        );
+        let named: Vec<&str> = v
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|i| i["type"] == "skill")
+            .map(|i| i["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(named, ["review", "review-pr"]);
+        assert_eq!(v[1]["path"], "/s/review/SKILL.md");
+    }
+
+    #[test]
     fn input_puts_images_after_their_text() {
-        let v = input(&[
-            Prompt {
-                text: "look".into(),
-                images: vec![PathBuf::from("/a.png"), PathBuf::from("/notes.pdf")],
-            },
-            Prompt::text("and this"),
-        ]);
+        let v = input(
+            &[
+                Prompt {
+                    text: "look".into(),
+                    images: vec![PathBuf::from("/a.png"), PathBuf::from("/notes.pdf")],
+                },
+                Prompt::text("and this"),
+            ],
+            &[],
+        );
         let kinds: Vec<&str> = v
             .as_array()
             .unwrap()

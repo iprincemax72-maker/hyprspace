@@ -31,6 +31,7 @@ fn scan(base: &Path, scope: SkillScope, out: &mut Vec<SkillItem>, seen: &mut Has
         let command = format!("/{name}");
         if seen.insert(command.clone()) {
             out.push(SkillItem {
+                hidden: frontmatter_field(content, "user-invocable").as_deref() == Some("false"),
                 description: frontmatter_field(content, "description").unwrap_or_default(),
                 body: strip_frontmatter(content),
                 command,

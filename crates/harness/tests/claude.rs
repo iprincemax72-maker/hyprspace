@@ -37,14 +37,32 @@ async fn streams_a_reply_with_thinking_and_tool_calls() {
     session.send(Prompt::text("hello"));
     let run = events.run().await;
 
+    // the command list answers the session's first request, before the CLI says it started
+    let listed = run
+        .iter()
+        .position(|e| matches!(e, RunEvent::Commands { .. }));
+    assert_eq!(listed, Some(0), "{run:?}");
+    let RunEvent::Commands { info, .. } = &run[0] else {
+        unreachable!()
+    };
+    let skills: Vec<&str> = info
+        .iter()
+        .filter(|c| c.skill)
+        .map(|c| c.name.as_str())
+        .collect();
+    assert_eq!(
+        skills,
+        ["show-me"],
+        "built-ins and MCP prompts only start a message"
+    );
     let RunEvent::Started {
         agent,
         model,
         thread,
         cwd,
-    } = &run[0]
+    } = &run[1]
     else {
-        panic!("first event is Started: {run:?}")
+        panic!("Started follows: {run:?}")
     };
     assert_eq!((*agent, model.as_str()), (Agent::Claude, "claude-fake"));
     assert_eq!(thread, "fake-session");
@@ -131,7 +149,9 @@ async fn passes_model_effort_permission_and_resumes_in_the_original_folder() {
     let session = harness.start(launch, emit).unwrap();
     session.send(Prompt::text("args"));
     let run = events.run().await;
-    let RunEvent::Started { thread, cwd, .. } = &run[0] else {
+    let Some(RunEvent::Started { thread, cwd, .. }) =
+        run.iter().find(|e| matches!(e, RunEvent::Started { .. }))
+    else {
         panic!("{run:?}")
     };
     assert_eq!(thread, "abc-1");

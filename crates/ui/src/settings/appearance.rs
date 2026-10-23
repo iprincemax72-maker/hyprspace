@@ -301,6 +301,7 @@ impl Root {
                     .child(div().grid().grid_cols(3).gap(px(12.)).children(cards)),
             )
             .child(self.background_group(cx))
+            .child(self.sidebar_art_group(cx))
             .child(group(
                 "Interface",
                 vec![

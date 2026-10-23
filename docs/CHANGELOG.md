@@ -4,6 +4,17 @@ Release notes for HyprSpace. Written **at ship time** — when you ask to ship, 
 changed since the last release and writes a few user-facing bullets; `deploy.ps1` records them here
 and uses them as the release notes + the in-app "What's new" notification. No per-task bookkeeping.
 
+## 0.24.31 — 2026-10-23
+
+- Type / anywhere in a message to pick a skill. Commands still go at the start
+- Plugin and claude.ai skills show up with what they do, even before a thread has run
+- Pick a Codex skill, or type its $name, and Codex runs it
+- A picked skill shows as a chip you delete with one keypress
+- Typing a path like /usr/bin no longer opens the command list, and sm finds show-me
+- Add a picture to the top of the sidebar in Settings, Appearance
+- Claude's questions no longer leave a spinning row above their card
+- No project threads show their own folder name in the title bar
+
 ## 0.24.30 — 2026-10-23
 
 - Start a thread with no project from the + button, the composer's folder menu or Ctrl+K. Each one gets a folder of its own

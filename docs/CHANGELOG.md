@@ -4,6 +4,18 @@ Release notes for HyprSpace. Written **at ship time** — when you ask to ship, 
 changed since the last release and writes a few user-facing bullets; `deploy.ps1` records them here
 and uses them as the release notes + the in-app "What's new" notification. No per-task bookkeeping.
 
+## 0.24.30 — 2026-10-23
+
+- Start a thread with no project from the + button, the composer's folder menu or Ctrl+K. Each one gets a folder of its own
+- Projects show their own logo, and a thread's menu lets you pick an emoji, an image or a color for its project
+- Answer Claude's questions in your own words with Other, or pick Chat about this to talk it over first
+- /login in a structured thread signs you in again in a terminal below
+- Claude's Chrome tools work in structured threads when you've turned them on in Claude Code
+- Working stays on when Claude keeps going after a background task finishes
+- Bold, code, links and tables no longer flash raw markdown while a reply streams
+- A thread that finished while you were away shows its reply at once when you open it
+- Copy appears on a reply once it has finished
+
 ## 0.24.29 — 2026-10-21
 
 - Pasted images get an [Image N] marker you can hover to preview, Ctrl+click to open, and delete as one piece

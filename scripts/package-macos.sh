@@ -50,7 +50,15 @@ import_certificate() { # <base64 .p12> <password>
   security import "$OUT/cert.p12" -k "$KEYCHAIN" -P "$2" -T /usr/bin/codesign
   rm -f "$OUT/cert.p12"
   security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
-  security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+  KEYCHAINS_BEFORE="$(security list-keychains -d user | tr -d '"')"
+  security list-keychains -d user -s "$KEYCHAIN" $KEYCHAINS_BEFORE
+  # the dmg is signed near the end too, so the keychain goes when the script does
+  trap forget_keychain EXIT
+}
+
+forget_keychain() {
+  security list-keychains -d user -s $KEYCHAINS_BEFORE
+  security delete-keychain "$KEYCHAIN" || true
 }
 
 IDENTITY="${APPLE_SIGNING_IDENTITY:-}"

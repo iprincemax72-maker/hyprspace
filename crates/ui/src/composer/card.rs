@@ -229,7 +229,7 @@ pub fn footer(c: &Composer, cx: &mut Context<Composer>) -> AnyElement {
 /// project shows its folder; an open space asks for one.
 pub fn folder_picker(c: &Composer, cx: &mut Context<Composer>) -> AnyElement {
     let (label, pick) = match c.target.as_ref() {
-        None => ("Choose a folder".to_string(), Some(PickFor::Project)),
+        None => ("Choose a folder".to_string(), None),
         Some(t) if t.cwd.is_none() => (
             c.folder
                 .as_ref()

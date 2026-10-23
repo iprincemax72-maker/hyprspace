@@ -63,6 +63,31 @@ fn trim_separator(path: PathBuf) -> PathBuf {
     PathBuf::from(trimmed)
 }
 
+/// The No project space's folder. Each thread started there gets a folder of its own inside it.
+pub(crate) fn scratch_root() -> PathBuf {
+    hyprspace_proto::state::state_dir().join("scratch")
+}
+
+/// A new, empty folder under the scratch root, named after the thread.
+fn scratch_folder(title: &str) -> PathBuf {
+    let root = scratch_root();
+    let mut name = crate::skills::slug(title).to_lowercase();
+    name.truncate(40);
+    let name = match name.trim_matches('-') {
+        "" => "thread".to_string(),
+        n => n.to_string(),
+    };
+    let dir = (1..)
+        .map(|n| match n {
+            1 => root.join(&name),
+            n => root.join(format!("{name}-{n}")),
+        })
+        .find(|d| !d.exists())
+        .unwrap_or(root);
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
 pub(crate) fn folder_name(path: &Path) -> String {
     path.file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -91,6 +116,18 @@ impl Root {
         id
     }
 
+    /// The composer on the No project space, made the first time.
+    pub(crate) fn no_project(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let root = scratch_root();
+        let _ = std::fs::create_dir_all(&root);
+        let space = self.add_project(root, cx);
+        if let Some(s) = self.state.space_mut(space) {
+            s.name = "No project".into();
+        }
+        self.save();
+        self.compose(Some(space), window, cx);
+    }
+
     /// New thread from the sidebar's top button: pick a folder in the in-app browser, then the
     /// composer for its space. It starts beside the space on screen, where projects tend to live.
     pub(crate) fn pick_thread_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -114,7 +151,7 @@ impl Root {
             .spaces
             .iter()
             .filter(|s| !s.archived && s.machine.is_none())
-            .filter_map(|s| Some((s.name.clone(), s.cwd.clone()?)))
+            .filter_map(|s| Some((s.name.clone(), s.cwd.clone()?, self.look_of(s))))
             .collect();
         let picker = cx.new(|cx| {
             let mut p = crate::folders::FolderPicker::new(client, None, start, home, back, cx);
@@ -135,6 +172,10 @@ impl Root {
                 crate::folders::PickerEvent::System => {
                     r.close_folder_picker(window, cx);
                     r.pick_folder_from_system(window, cx);
+                }
+                crate::folders::PickerEvent::NoProject => {
+                    r.close_folder_picker(window, cx);
+                    r.no_project(window, cx);
                 }
                 crate::folders::PickerEvent::Close => r.close_folder_picker(window, cx),
             },
@@ -269,10 +310,16 @@ impl Root {
             .state
             .spaces
             .iter()
-            .filter(|s| !s.archived && s.cwd.is_some() && s.machine == machine)
+            .filter(|s| !s.archived && s.machine == machine)
+            .filter(|s| {
+                s.cwd
+                    .as_deref()
+                    .is_some_and(|c| s.machine.is_some() || !same_folder(c, &scratch_root()))
+            })
             .map(|s| crate::composer::spaces::Place {
                 space: s.id,
                 name: s.name.clone(),
+                look: self.look_of(s),
             })
             .collect();
         self.composer.update(cx, |c, cx| {
@@ -358,7 +405,7 @@ impl Root {
             ThreadKind::Terminal { cwd, run } => {
                 let (cwd, run) = (cwd.clone(), run.clone());
                 let prompt = first.as_ref().map(typed);
-                let v = cx.new(|cx| TerminalView::new(session, client, cwd, run, prompt, cx));
+                let v = cx.new(|cx| TerminalView::new(session, client, cwd, run, prompt, None, cx));
                 let local = remote.is_none();
                 let sub = cx.subscribe(&v, move |root, _, e: &TerminalEvent, cx| match e {
                     // an image or a video opens over the window, anything else in the viewer
@@ -533,6 +580,7 @@ impl Root {
                 self.save();
             }
             TranscriptEvent::SwitchFailed => self.switch_back(thread, cx),
+            TranscriptEvent::SignIn => self.work.sign_in = Some(thread),
             TranscriptEvent::Draft(text, images) => {
                 if let Some(t) = self.state.thread_mut(thread)
                     && (t.draft != *text || t.draft_images != *images)
@@ -609,6 +657,9 @@ impl Root {
             title,
             terminal,
         } = start;
+        if launch.resume.is_none() && same_folder(&launch.cwd, &scratch_root()) {
+            launch.cwd = scratch_folder(&title);
+        }
         let resumed = launch.resume.is_some() && !terminal;
         let kind = if terminal {
             // a Claude thread claims its conversation id up front, so it can resume it later
@@ -766,6 +817,10 @@ impl Root {
         let thread = thread.clone();
         if !self.views.contains_key(&id) {
             self.make_view(&thread, None, true, cx);
+        } else if self.screen != Screen::Thread(id)
+            && let Some(View::Structured(v)) = self.views.get(&id)
+        {
+            v.update(cx, |v, _| v.come_on_screen());
         }
         self.screen = Screen::Thread(id);
         self.unseen.remove(&id);
@@ -826,7 +881,7 @@ impl Root {
 
     pub(crate) fn act(&mut self, action: Action, window: &mut Window, cx: &mut Context<Self>) {
         // a menu row that opens another menu opens it where this one was
-        self.menu = None;
+        let at = self.menu.take().map(|(at, _)| at).unwrap_or_default();
         match action {
             Action::NewThread(space) => self.compose(Some(space), window, cx),
             Action::NewTerminal(space) if self.machines.space(space).is_some() => {
@@ -853,6 +908,7 @@ impl Root {
                 self.leave(window, cx);
             }
             Action::Worktree(id, action) => self.finish_worktree(id, action, window, cx),
+            Action::ProjectIcon(space) => self.open_icon_picker(space, at, window, cx),
             Action::OpenIn(opener, space) => {
                 if let Some(cwd) = self.state.space(space).and_then(|s| s.cwd.clone()) {
                     self.open_in(opener, &cwd, cx);

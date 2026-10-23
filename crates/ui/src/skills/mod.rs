@@ -31,7 +31,7 @@ Write the instructions for Claude here.
 ";
 
 /// What a name becomes on disk and after the slash: letters, digits, `-` and `_`.
-fn slug(name: &str) -> String {
+pub(crate) fn slug(name: &str) -> String {
     let mut out = String::new();
     for c in name.trim().chars() {
         if c.is_ascii_alphanumeric() || c == '-' || c == '_' {

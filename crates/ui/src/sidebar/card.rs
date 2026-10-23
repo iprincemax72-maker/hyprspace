@@ -31,6 +31,7 @@ const PATH_CHARS: usize = 30;
 pub struct RowCard {
     pub title: SharedString,
     pub space: SharedString,
+    pub look: super::Look,
     pub machine: Option<SharedString>,
     pub path: SharedString,
     pub branch: Option<SharedString>,
@@ -139,7 +140,7 @@ impl RowCard {
                     .items_center()
                     .gap(px(6.))
                     .min_w_0()
-                    .child(super::row::tag(&self.space, false))
+                    .child(super::row::tag(&self.space, self.look.clone(), false))
                     .child(div().min_w_0().truncate().child(self.space.clone())),
             ))
             .children(self.machine.clone().map(|m| {

@@ -34,6 +34,7 @@ const FILES: &[(&str, &[u8])] = files!(
     "icons/arrow-up.svg",
     "icons/folder.svg",
     "icons/folder-open.svg",
+    "icons/message-square.svg",
     "icons/settings.svg",
     "icons/archive.svg",
     "icons/terminal.svg",

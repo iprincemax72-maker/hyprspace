@@ -327,6 +327,26 @@ async fn a_question_is_answered_with_the_picks() {
 }
 
 #[tokio::test]
+async fn chat_about_a_question_turns_it_down_with_the_answers_so_far() {
+    let dir = tempfile::tempdir().unwrap();
+    let (session, mut events) = start(&claude(), dir.path());
+    session.send(Prompt::text("question"));
+    let asked = events
+        .until(|e| matches!(e, RunEvent::Approval { .. }))
+        .await;
+    let Some(RunEvent::Approval { request, .. }) = asked.last() else {
+        panic!()
+    };
+    session.answer(
+        request.clone(),
+        Answer::Deny,
+        vec![("Which db?".into(), String::new())],
+    );
+    let run = events.run().await;
+    assert_eq!(text(&run), "denied: (No answer provided)");
+}
+
+#[tokio::test]
 async fn a_prompt_mid_run_steers_it() {
     let dir = tempfile::tempdir().unwrap();
     let (session, mut events) = start(&claude(), dir.path());
@@ -569,6 +589,18 @@ async fn a_background_subagent_outlives_the_run() {
     assert_eq!(finished(&later).0, RunStatus::Done);
     session.send(Prompt::text("after"));
     assert_eq!(text(&events.run().await), "echo: after");
+}
+
+#[tokio::test]
+async fn a_turn_without_an_init_still_wakes() {
+    let dir = tempfile::tempdir().unwrap();
+    let (session, mut events) = start(&claude(), dir.path());
+    session.send(Prompt::text("bgquiet"));
+    assert_eq!(text(&events.run().await), "Started it.");
+    let later = events.run().await;
+    assert_eq!(count(&later, |e| *e == RunEvent::Woke), 1);
+    assert_eq!(text(&later), "It found a.txt.");
+    assert_eq!(finished(&later).0, RunStatus::Done);
 }
 
 #[tokio::test]

@@ -6,6 +6,7 @@
 mod code;
 mod fade;
 pub mod find;
+mod mend;
 mod render;
 pub mod select;
 
@@ -415,7 +416,7 @@ impl Stream {
             self.cut = cut;
         }
         let mut out = self.head.clone();
-        out.extend(parse(&text[self.cut..]));
+        out.extend(parse(&mend::mend(&text[self.cut..])));
         out
     }
 }
@@ -465,7 +466,7 @@ mod tests {
         for end in (0..=doc.len()).filter(|e| doc.is_char_boundary(*e)) {
             assert_eq!(
                 stream.parse(&doc[..end]),
-                parse(&doc[..end]),
+                parse(&mend::mend(&doc[..end])),
                 "at {end}: {:?}",
                 &doc[..end]
             );

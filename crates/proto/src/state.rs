@@ -97,6 +97,23 @@ impl SettleAfter {
     }
 }
 
+/// Where the GPUI app keeps its state: `~/.hyprspace/native`, beside the Tauri app's `v2` rather
+/// than inside it. The two apps run side by side during the rewrite and their schemas differ, so
+/// sharing a folder would let one clobber the other.
+pub fn state_dir() -> PathBuf {
+    // dev escape hatch: point a dev instance at its own state dir so it can't clobber the
+    // installed app's data. unset in release builds, so it never affects real users.
+    if let Ok(d) = std::env::var("HYPRSPACE_STATE_DIR")
+        && !d.trim().is_empty()
+    {
+        return PathBuf::from(d);
+    }
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
+        .unwrap_or_default();
+    PathBuf::from(home).join(".hyprspace").join("native")
+}
+
 impl AppState {
     pub fn take_id(&mut self) -> u64 {
         let id = self.next_id;
@@ -175,11 +192,24 @@ pub struct Space {
     pub archived: bool,
     /// Folded shut in the sidebar.
     pub folded: bool,
+    /// The user's pick for its tag, over the icon found in its folder.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<SpaceIcon>,
+    /// The user's pick for its color, a hue in degrees, over the one its name gives.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hue: Option<u16>,
     /// Newest first.
     pub threads: Vec<Thread>,
     /// Another computer's space, mirrored from it while it is paired: never saved here.
     #[serde(skip)]
     pub machine: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum SpaceIcon {
+    Image { path: PathBuf },
+    Emoji { emoji: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

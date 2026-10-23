@@ -64,23 +64,37 @@ pub fn view(
             cx.notify();
         }
     });
-    v.partial = v
+    let revealed = v
         .reveal
         .as_mut()
         .and_then(|r| match v.model.items.get(r.ix) {
-            Some(Item::Text { source, .. }) => r.step(source, window, cx).map(|end| {
-                let text = &source[..end];
-                if v.model.after_command(r.ix) {
-                    return (r.ix, model::reply(text, true));
-                }
-                if v.stream.0 != r.ix {
-                    v.stream = (r.ix, Default::default());
-                }
-                (r.ix, v.stream.1.parse(text))
-            }),
+            Some(Item::Text { source, .. }) => r.step(source, window, cx).map(|end| (r.ix, end)),
             _ => None,
         });
-    if let Some((ix, b)) = &v.partial {
+    // a reply still coming in goes through the streaming parser even once the reveal caught up,
+    // so its unfinished markup never shows
+    let live = revealed.or_else(|| match v.model.items.last() {
+        Some(Item::Text { source, .. }) if v.model.elapsed().is_some() => {
+            Some((v.model.items.len() - 1, source.len()))
+        }
+        _ => None,
+    });
+    v.partial = live.and_then(|(ix, end)| match v.model.items.get(ix) {
+        Some(Item::Text { source, .. }) => {
+            let text = &source[..end];
+            if v.model.after_command(ix) {
+                return Some((ix, model::reply(text, true)));
+            }
+            if v.stream.0 != ix {
+                v.stream = (ix, Default::default());
+            }
+            Some((ix, v.stream.1.parse(text)))
+        }
+        _ => None,
+    });
+    if slide::animations()
+        && let Some((ix, b)) = &v.partial
+    {
         v.fade.grow(*ix, b);
     }
     if v.fade.tick() {
@@ -745,6 +759,12 @@ fn plain(source: &str) -> String {
     text.chars().take(240).collect()
 }
 
+/// A reply still coming in: being revealed, or the last thing a live run has said.
+fn streaming(v: &TranscriptView, ix: usize) -> bool {
+    v.partial.as_ref().is_some_and(|(p, _)| *p == ix)
+        || (v.model.elapsed().is_some() && ix + 1 == v.model.items.len())
+}
+
 fn hover_copy(ix: usize, text: &str) -> gpui::Div {
     div()
         .flex()
@@ -926,7 +946,7 @@ fn item(
                 .line_height(relative(1.65))
                 .text_color(colors::text1())
                 .child(markdown::render(b, &format!("t{ix}"), &v.fade.at(ix)))
-                .child(hover_copy(ix, source))
+                .when(!streaming(v, ix), |d| d.child(hover_copy(ix, source)))
                 .into_any_element(),
             None => div().into_any_element(),
         },

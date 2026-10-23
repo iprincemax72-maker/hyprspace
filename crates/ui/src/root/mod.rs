@@ -10,7 +10,7 @@ mod threads;
 pub mod titlebar;
 mod worktree;
 
-pub(crate) use threads::{folder_name, same_folder};
+pub(crate) use threads::{folder_name, same_folder, scratch_root};
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -76,6 +76,8 @@ pub enum Action {
     CopyConversation(u64),
     Switch(u64),
     Worktree(u64, hyprspace_proto::git::WorktreeAction),
+    /// Opens the space's icon picker where the menu was.
+    ProjectIcon(u64),
 }
 
 /// One line of a right-click menu.
@@ -154,6 +156,7 @@ pub struct Root {
         std::rc::Rc<std::cell::RefCell<HashMap<u64, gpui::Bounds<gpui::Pixels>>>>,
     /// The snooze menu: where it opened, for which thread.
     pub(crate) snooze_menu: Option<(Point<Pixels>, u64)>,
+    pub(crate) icon_picker: Option<crate::sidebar::IconPicker>,
     /// The last settle or snooze, which the toast can undo for a few seconds.
     pub(crate) undo: Option<settle::Undo>,
     _undo_timer: Option<Task<()>>,
@@ -196,6 +199,8 @@ pub struct Root {
     pub(crate) switching: HashMap<u64, switch::Switch>,
     /// The sidebar, drawn through a cached view of its own (`crate::sidebar::SidebarView`).
     pub(crate) sidebar_view: Entity<crate::sidebar::SidebarView>,
+    /// Each local space folder's icon, once looked for (`sidebar::icon`).
+    pub(crate) icons: HashMap<PathBuf, Option<PathBuf>>,
     /// The sidebar's search box, which narrows the spaces and threads to what matches.
     pub(crate) search: Entity<TextInput>,
     /// The last git status read for each folder the sidebar shows: its branch and changes.
@@ -351,6 +356,7 @@ impl Root {
             _hover_timer: None,
             row_bounds: Default::default(),
             snooze_menu: None,
+            icon_picker: None,
             undo: None,
             _undo_timer: None,
             back: Screen::Compose(None),
@@ -376,6 +382,7 @@ impl Root {
             switching: HashMap::new(),
             search,
             sidebar_view,
+            icons: HashMap::new(),
             git: HashMap::new(),
             ticking: false,
             _ticker: None,
@@ -790,6 +797,7 @@ impl Root {
             }
             ComposerEvent::Machine(machine) => self.pick_machine(machine.clone(), window, cx),
             ComposerEvent::Space(space) => self.compose(Some(*space), window, cx),
+            ComposerEvent::NoProject => self.no_project(window, cx),
             ComposerEvent::OtherFolder => self.other_folder(window, cx),
             ComposerEvent::ShowMedia(path) => self.show_media(path.clone(), cx),
         }

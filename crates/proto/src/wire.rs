@@ -94,7 +94,8 @@ pub enum Command {
     },
     /// Spawn the default shell in a PTY sized `cols` x `rows`. With `run`, the engine types that
     /// agent's launch command into the shell once it is up, then `prompt` once the CLI is ready
-    /// for it. The command never carries user text; the prompt goes in as keystrokes.
+    /// for it. The command never carries user text; the prompt goes in as keystrokes. With
+    /// `sign_in` and no `run`, it types that agent's sign-in command.
     OpenTerminal {
         id: SessionId,
         cwd: PathBuf,
@@ -102,6 +103,7 @@ pub enum Command {
         rows: u16,
         run: Option<Launch>,
         prompt: Option<String>,
+        sign_in: Option<Agent>,
     },
     /// Keystrokes, pastes and the emulator's answers to terminal queries.
     WriteTerminal {
@@ -414,6 +416,7 @@ mod tests {
                 rows: 24,
                 run: Some(Launch::new(Agent::Codex, "/w")),
                 prompt: Some("hi".into()),
+                sign_in: None,
             },
             Command::WriteTerminal {
                 id: SessionId(2),
@@ -626,6 +629,7 @@ mod tests {
             rows: 1,
             run: None,
             prompt: None,
+            sign_in: None,
         })
         .unwrap();
         assert!(json.contains(r#""type":"openTerminal""#), "{json}");

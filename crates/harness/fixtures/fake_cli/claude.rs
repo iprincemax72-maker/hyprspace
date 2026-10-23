@@ -101,8 +101,10 @@ pub fn run(args: &[String]) {
             bgwedge();
         } else if text.contains("bgtask") {
             bgtask();
+        } else if text.contains("bgquiet") {
+            background(false);
         } else if text.contains("background") {
-            background();
+            background(true);
         } else if text.contains("subagent") {
             subagent();
         } else if text.contains("approve") {
@@ -150,8 +152,18 @@ pub fn run(args: &[String]) {
                     "multiSelect": false }] }),
                 Value::Null,
             );
-            let got = &r["response"]["response"]["updatedInput"]["answers"]["Which db?"];
-            let reply = format!("picked {}", got.as_str().unwrap_or("nothing"));
+            let response = &r["response"]["response"];
+            let reply = match response["message"].as_str() {
+                Some(m) if response["behavior"] == "deny" => {
+                    format!("denied: {}", m.lines().last().unwrap_or_default().trim())
+                }
+                _ => format!(
+                    "picked {}",
+                    response["updatedInput"]["answers"]["Which db?"]
+                        .as_str()
+                        .unwrap_or("nothing")
+                ),
+            };
             say(&reply);
             done(&reply);
         } else if text.contains("absorb") {
@@ -471,8 +483,8 @@ fn subagent() {
 }
 
 // A background subagent: its call returns a launch note, the run ends, the subagent works on,
-// and its notification makes the CLI take a turn of its own.
-fn background() {
+// and its notification makes the CLI take a turn of its own, with or without an init first.
+fn background(init: bool) {
     spawn("toolu_bg", Value::Null, "List files", true);
     tool_result(
         Value::Null,
@@ -492,10 +504,12 @@ fn background() {
     // a background shell command ends the same way and is not a subagent
     notification("toolu_shell", "completed", "exit 0");
     notification("toolu_bg", "completed", "Found a.txt.");
-    emit(json!({
-        "type": "system", "subtype": "init", "model": "claude-fake",
-        "session_id": "fake-session", "tools": ["Bash"],
-    }));
+    if init {
+        emit(json!({
+            "type": "system", "subtype": "init", "model": "claude-fake",
+            "session_id": "fake-session", "tools": ["Bash"],
+        }));
+    }
     say("It found a.txt.");
     done("It found a.txt.");
 }

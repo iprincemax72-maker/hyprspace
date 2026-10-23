@@ -65,6 +65,7 @@ pub enum ComposerEvent {
     /// The next thread runs on another computer, or on this one with None.
     Machine(Option<String>),
     Space(u64),
+    NoProject,
     OtherFolder,
     ShowMedia(PathBuf),
 }
@@ -285,7 +286,7 @@ impl Composer {
             .or_else(|| self.folder.clone())
     }
 
-    fn remote(&self) -> bool {
+    pub(super) fn remote(&self) -> bool {
         self.target.as_ref().is_some_and(|t| t.machine.is_some())
     }
 

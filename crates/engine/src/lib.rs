@@ -446,10 +446,12 @@ async fn serve(
                 rows,
                 run,
                 prompt,
+                sign_in,
             } => {
                 // before the shell starts, so the bridge keeps its first output too
                 phone.opened_terminal(id, cols, rows);
-                let opened = block_in_place(|| terminals.open(id, cwd, (cols, rows), run, prompt));
+                let opened =
+                    block_in_place(|| terminals.open(id, cwd, (cols, rows), run, prompt, sign_in));
                 if let Err(e) = opened {
                     let _ = tx.unbounded_send(Event::Failed {
                         id,
@@ -587,6 +589,7 @@ mod tests {
             rows: 24,
             run: None,
             prompt: None,
+            sign_in: None,
         });
         // any shell prints something on start: a prompt, a banner, or a cursor query
         match events.recv_timeout(wait).unwrap() {

@@ -108,19 +108,7 @@ impl Store {
     }
 }
 
-/// Where the GPUI app keeps its state: `~/.hyprspace/native`, beside the Tauri app's `v2` rather
-/// than inside it. The two apps run side by side during the rewrite and their schemas differ, so
-/// sharing a folder would let one clobber the other.
-pub fn state_dir() -> PathBuf {
-    // dev escape hatch: point a dev instance at its own state dir so it can't clobber the
-    // installed app's data. unset in release builds, so it never affects real users.
-    if let Ok(d) = std::env::var("HYPRSPACE_STATE_DIR")
-        && !d.trim().is_empty()
-    {
-        return PathBuf::from(d);
-    }
-    crate::util::home_dir().join(".hyprspace").join("native")
-}
+pub use hyprspace_proto::state::state_dir;
 
 #[cfg(test)]
 mod tests {

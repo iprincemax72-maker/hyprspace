@@ -14,7 +14,9 @@ thread or terminal takes the main area. There are no tiles, layouts or "open bes
   composer). A structured thread runs edge to edge, with its name in the bar above.
 - Ctrl+` opens a drawer of shells under a structured thread, one tab each (`workbench/drawer.rs`).
   Their sessions stay out of `Root.sessions`, so their hooks, agents and exits never touch the
-  thread.
+  thread. `/login` opens one that runs the agent's own sign-in (`claude auth login`, `codex
+  login`), and closes the thread's CLI if it is idle, so the next message starts one that reads
+  the new login.
 - `proto::Grid` is gone. A state file that still has `grid` loads; serde skips the field. `Pane`
   stays: a dragged sidebar row carries one, and the viewer shows `Pane::File` and `Pane::Diff`.
 
@@ -35,6 +37,11 @@ or adds one. Every thread runs in a folder anyway, and `claude --resume` only wo
 conversation started in, so a space with no folder (the Tauri app's open spaces) was a second
 place to put a thread that the dock, the Open menu and resume all had to special-case. `Space.cwd`
 is still an `Option` so old state loads.
+
+"No project" keeps that rule. It is an ordinary space on `scratch` in the state folder, and each
+thread started there gets a new folder of its own inside it, named after its title, so two
+threads never write over each other's files. A terminal opened on the space runs in `scratch`
+itself.
 
 ## Settle and snooze
 

@@ -2,7 +2,7 @@ use gpui::{
     AnyElement, AppContext, ClickEvent, Context, DragMoveEvent, Entity, Focusable, FontWeight,
     IntoElement, SharedString, StyleRefinement, Subscription, Window, div, prelude::*,
 };
-use hyprspace_proto::{Command, SessionId, ThreadKind};
+use hyprspace_proto::{Agent, Command, SessionId, ThreadKind};
 use hyprspace_theme::MONO;
 
 use super::ToggleTerminal;
@@ -32,6 +32,15 @@ pub(crate) struct Drawer {
 }
 
 impl Drawer {
+    fn new() -> Self {
+        Self {
+            shells: Vec::new(),
+            active: 0,
+            next: 1,
+            open: true,
+        }
+    }
+
     fn shown(&self) -> Option<&Shell> {
         self.shells.get(self.active)
     }
@@ -59,22 +68,42 @@ impl Root {
         match self.work.drawers.get_mut(&thread) {
             Some(d) => d.open = !d.open,
             None => {
-                self.work.drawers.insert(
-                    thread,
-                    Drawer {
-                        shells: Vec::new(),
-                        active: 0,
-                        next: 1,
-                        open: true,
-                    },
-                );
-                self.add_shell(thread, cx);
+                self.work.drawers.insert(thread, Drawer::new());
+                self.add_shell(thread, None, cx);
             }
         }
         self.focus_drawer(thread, window, cx);
     }
 
-    fn add_shell(&mut self, thread: u64, cx: &mut Context<Self>) {
+    /// A new shell under the thread that signs its agent in again.
+    pub(crate) fn sign_in(&mut self, thread: u64, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(agent) = self
+            .state
+            .thread(thread)
+            .and_then(|(_, t)| t.agent().map(|l| l.agent))
+        else {
+            return;
+        };
+        if self.machines.remote(thread).is_some() {
+            self.notify(
+                format!(
+                    "Sign {} in on the computer this thread runs on.",
+                    agent.name()
+                ),
+                cx,
+            );
+            return;
+        }
+        self.work
+            .drawers
+            .entry(thread)
+            .or_insert_with(Drawer::new)
+            .open = true;
+        self.add_shell(thread, Some(agent), cx);
+        self.focus_drawer(thread, window, cx);
+    }
+
+    fn add_shell(&mut self, thread: u64, sign_in: Option<Agent>, cx: &mut Context<Self>) {
         let Some(cwd) = self.state.thread(thread).and_then(|(_, t)| match &t.kind {
             ThreadKind::Structured { launch } => Some(launch.cwd.clone()),
             _ => None,
@@ -84,7 +113,7 @@ impl Root {
         let session = SessionId(self.next_session);
         self.next_session += 1;
         let client = self.client.clone();
-        let view = cx.new(|cx| TerminalView::new(session, client, cwd, None, None, cx));
+        let view = cx.new(|cx| TerminalView::new(session, client, cwd, None, None, sign_in, cx));
         let sub = cx.subscribe(&view, |root, _, e: &TerminalEvent, cx| match e {
             TerminalEvent::OpenFile {
                 path, line: None, ..
@@ -279,7 +308,7 @@ impl Root {
                     .ml(px(2.))
                     .tooltip(crate::widgets::tip("New terminal"))
                     .on_click(cx.listener(move |r, _: &ClickEvent, window, cx| {
-                        r.add_shell(thread, cx);
+                        r.add_shell(thread, None, cx);
                         r.focus_drawer(thread, window, cx)
                     })),
             )

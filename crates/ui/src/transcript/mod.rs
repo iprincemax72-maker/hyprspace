@@ -54,6 +54,8 @@ pub enum TranscriptEvent {
     Open(hyprspace_proto::Pane),
     ViewChanges,
     NewThread,
+    /// `/login`: sign the agent in again in a shell under the thread.
+    SignIn,
     Fork {
         launch: Launch,
         keep: usize,
@@ -126,6 +128,9 @@ pub struct TranscriptView {
     pub(super) steps: std::collections::HashMap<String, usize>,
     pub(super) expanded: HashSet<usize>,
     pub(super) answered: std::collections::HashMap<String, Vec<(String, String)>>,
+    /// What was typed for each question's Other choice, and the field open for one.
+    pub(super) others: std::collections::HashMap<String, Vec<String>>,
+    pub(super) other: Option<ask::Other>,
     pub(super) perm_menu: Option<gpui::Point<gpui::Pixels>>,
     follow: motion::Follow,
     reveal: Option<motion::Reveal>,
@@ -266,6 +271,8 @@ impl TranscriptView {
             steps: Default::default(),
             expanded: HashSet::new(),
             answered: Default::default(),
+            others: Default::default(),
+            other: None,
             perm_menu: None,
             follow: Default::default(),
             reveal: None,
@@ -372,6 +379,17 @@ impl TranscriptView {
 
     pub(super) fn resume_cut(&mut self, cx: &mut Context<Self>) {
         self.offer(Prompt::text(RESUME), cx);
+    }
+
+    /// Comes on screen: what arrived while it was away shows as it is, and only what streams in
+    /// from here on animates. A view off screen draws nothing, so its reveal fell behind.
+    pub fn come_on_screen(&mut self) {
+        self.reveal = None;
+        self.partial = None;
+        self.stream = Default::default();
+        self.fade = Default::default();
+        self.seen = self.model.items.len();
+        self.born.clear();
     }
 
     /// The app quit to install an update while this thread ran: once its journal shows the run
@@ -653,6 +671,9 @@ impl TranscriptView {
         self.model.answered(&request, answer);
         if !answers.is_empty() {
             self.answered.insert(request.clone(), answers.clone());
+        }
+        if self.other.as_ref().is_some_and(|o| o.is_for(&request)) {
+            self.other = None;
         }
         self.client.send(Command::Approve {
             id: self.id,

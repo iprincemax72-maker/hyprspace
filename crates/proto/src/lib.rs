@@ -30,7 +30,7 @@ pub use run::{
     Tool,
 };
 pub use skills::{SkillCommand, SkillEvent};
-pub use state::{AppState, Entry, SettleAfter, Snooze, Space, Thread, ThreadKind};
+pub use state::{AppState, Entry, SettleAfter, Snooze, Space, SpaceIcon, Thread, ThreadKind};
 pub use update::{UpdateCommand, UpdateEvent};
 pub use usage::{UsageCommand, UsageEvent};
 pub use wire::{Command, Event, SessionId};

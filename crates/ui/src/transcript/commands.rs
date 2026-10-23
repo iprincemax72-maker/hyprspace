@@ -1,5 +1,5 @@
 use gpui::Context;
-use hyprspace_proto::Permission;
+use hyprspace_proto::{Command, Permission};
 
 use super::{TranscriptEvent, TranscriptView};
 use crate::suggest::Item;
@@ -12,6 +12,7 @@ pub(crate) enum Own {
     Clear,
     Context,
     Rewind,
+    Login,
 }
 
 const OWN: &[(&str, Own, &str)] = &[
@@ -22,6 +23,7 @@ const OWN: &[(&str, Own, &str)] = &[
     ("new", Own::Clear, "Start a new thread here"),
     ("context", Own::Context, "How full the context window is"),
     ("rewind", Own::Rewind, "Go back to an earlier message"),
+    ("login", Own::Login, "Sign in again in a terminal below"),
 ];
 
 const TERMINAL_ONLY: &[&str] = &[
@@ -38,7 +40,6 @@ const TERMINAL_ONLY: &[&str] = &[
     "ide",
     "init-github-app",
     "install-github-app",
-    "login",
     "logout",
     "mcp",
     "memory",
@@ -106,6 +107,13 @@ impl TranscriptView {
             Slash::Own(Own::Rewind) => self
                 .model
                 .note("Point at one of your messages and click the pencil to edit from there."),
+            Slash::Own(Own::Login) => {
+                if self.open && !self.model.running() {
+                    self.client.send(Command::Close { id: self.id });
+                    self.open = false;
+                }
+                cx.emit(TranscriptEvent::SignIn);
+            }
             Slash::TerminalOnly(name) => self
                 .model
                 .note(format!("/{name} only works in a terminal thread.")),

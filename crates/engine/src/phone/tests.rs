@@ -188,6 +188,7 @@ fn a_phone_pairs_watches_a_terminal_types_and_comes_back() {
         rows: 30,
         run: None,
         prompt: None,
+        sign_in: None,
     });
     // ConPTY asks where the cursor is before the shell starts; the UI's emulator answers that.
     // Other platforms' shells don't ask.

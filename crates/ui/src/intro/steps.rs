@@ -634,6 +634,21 @@ impl Root {
             .on_click(
                 cx.listener(|r, _: &ClickEvent, window, cx| r.pick_thread_folder(window, cx)),
             );
+        let none = div()
+            .id("intro-no-project")
+            .self_start()
+            .px(px(6.))
+            .py(px(3.))
+            .rounded(px(6.))
+            .text_size(px(12.5))
+            .text_color(colors::text2())
+            .cursor_pointer()
+            .hover(|s| s.bg(colors::ink(0.05)).text_color(colors::text1()))
+            .child("Or start without a project")
+            .on_click(cx.listener(|r, _: &ClickEvent, window, cx| {
+                r.no_project(window, cx);
+                r.finish_intro(cx);
+            }));
         let shortcuts = SHORTCUTS.iter().map(|(k, what)| {
             div()
                 .flex()
@@ -653,6 +668,7 @@ impl Root {
                 "It opens in the sidebar with a composer waiting. Type a task and press Enter.",
             ))
             .child(start)
+            .child(none)
             .child(sub_heading("Shortcuts worth learning"))
             .child(
                 div()

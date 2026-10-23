@@ -134,6 +134,25 @@ fn mode(permission: Permission) -> &'static str {
 }
 
 // a file, not inline JSON: an npm shim runs through cmd /c, which can mangle the quotes
+/// Where Claude keeps the user's own settings: `.claude.json` in `CLAUDE_CONFIG_DIR` when set,
+/// else beside the `.claude` folder at home.
+fn chrome_file() -> Option<std::path::PathBuf> {
+    if let Some(dir) = std::env::var_os("CLAUDE_CONFIG_DIR").filter(|d| !d.is_empty()) {
+        return Some(std::path::PathBuf::from(dir).join(".claude.json"));
+    }
+    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" })?;
+    Some(std::path::PathBuf::from(home).join(".claude.json"))
+}
+
+/// Whether the user turned Claude in Chrome on by default. The CLI applies that only to an
+/// interactive session, so a structured one has to ask for it.
+fn chrome_on(file: &std::path::Path) -> bool {
+    std::fs::read_to_string(file)
+        .ok()
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .is_some_and(|v| v["claudeInChromeDefaultEnabled"] == true)
+}
+
 fn fast_settings() -> Option<String> {
     let path = std::env::temp_dir().join("hyprspace-fast-mode.json");
     let body = r#"{"fastMode":true}"#;
@@ -188,6 +207,9 @@ impl Harness for Claude {
         }
         if let Some(path) = self.mcp.as_ref().and_then(mcp_config) {
             args.extend(["--mcp-config".into(), path.to_string_lossy().into_owned()]);
+        }
+        if chrome_file().is_some_and(|f| chrome_on(&f)) {
+            args.push("--chrome".into());
         }
         let proc = spawn(&self.program, &args, &cwd)?;
         let (tx, rx) = mpsc::unbounded_channel();
@@ -404,6 +426,11 @@ impl Actor {
                 answers,
             } => {
                 if let Some((mut input, rules)) = self.approvals.remove(&request) {
+                    // a turned-down question that still carries answers is "Chat about this"
+                    if answer == hyprspace_proto::Answer::Deny && !answers.is_empty() {
+                        self.write(wire::clarify_line(&request, &answers)).await;
+                        return;
+                    }
                     if !answers.is_empty() && input.is_object() {
                         let map: serde_json::Map<String, Value> = answers
                             .into_iter()
@@ -457,6 +484,11 @@ impl Actor {
         false
     }
 
+    fn woke(&mut self) {
+        self.run = Some(Run::new());
+        (self.emit)(RunEvent::Woke);
+    }
+
     // a CLI still starting up can drop an interrupt written before it said anything
     fn first_word(&mut self) -> bool {
         let patience = self.patience;
@@ -489,6 +521,11 @@ impl Actor {
             self.subagent(parent, &v);
             return;
         }
+        // a reply with no run live is a turn the CLI took on its own; it doesn't always open one
+        // with an init
+        if matches!(kind, "stream_event" | "assistant") && self.started && self.run.is_none() {
+            self.woke();
+        }
         match kind {
             "system" if v["subtype"] == "init" && !self.started => {
                 self.started = true;
@@ -506,10 +543,7 @@ impl Actor {
             }
             // the CLI starts every turn with an init; one with no run live is a turn it took
             // on its own, after a background subagent finished
-            "system" if v["subtype"] == "init" && self.run.is_none() => {
-                self.run = Some(Run::new());
-                (self.emit)(RunEvent::Woke);
-            }
+            "system" if v["subtype"] == "init" && self.run.is_none() => self.woke(),
             "system" if v["subtype"] == "task_notification" => self.notified(&v),
             "system" if v["subtype"] == "task_started" => {
                 if let Some(tool) = v["tool_use_id"].as_str() {
@@ -912,9 +946,7 @@ fn resets(v: &Value) -> Option<u64> {
 // The terse codes an assistant frame carries when a turn fails before any reply.
 fn error_text(code: &str) -> String {
     match code {
-        "authentication_failed" => {
-            "Claude could not sign in. Run claude once to sign in again.".into()
-        }
+        "authentication_failed" => "Claude could not sign in. Send /login to sign in again.".into(),
         "billing_error" => "Claude reported a billing problem with the plan.".into(),
         "rate_limit" => "Claude's usage limit was reached. Try again after it resets.".into(),
         "overloaded" => "Claude is overloaded. Try again shortly.".into(),
@@ -981,6 +1013,17 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn chrome_follows_the_users_own_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join(".claude.json");
+        assert!(!chrome_on(&file), "no settings, no chrome");
+        std::fs::write(&file, r#"{"claudeInChromeDefaultEnabled":true}"#).unwrap();
+        assert!(chrome_on(&file));
+        std::fs::write(&file, r#"{"claudeInChromeDefaultEnabled":false}"#).unwrap();
+        assert!(!chrome_on(&file));
+    }
 
     #[test]
     fn args_carry_model_effort_permission_and_resume() {

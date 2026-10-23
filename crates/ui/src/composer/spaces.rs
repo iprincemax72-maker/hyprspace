@@ -1,5 +1,5 @@
-// The folder under the box, as a menu: the projects on the same computer to start in, and a way
-// to open another folder.
+// The folder under the box, as a menu: the projects on the same computer to start in, No project,
+// and a way to open another folder.
 
 use gpui::{AnyElement, ClickEvent, Context, IntoElement, Pixels, Point, Window, div, prelude::*};
 
@@ -12,6 +12,7 @@ use crate::{colors, widgets};
 pub struct Place {
     pub space: u64,
     pub name: String,
+    pub look: crate::sidebar::Look,
 }
 
 impl Composer {
@@ -37,6 +38,11 @@ pub fn menu(
     cx: &mut Context<Composer>,
 ) -> AnyElement {
     let here = c.target.as_ref().map(|t| t.space);
+    let scratch = c.target.as_ref().is_some_and(|t| {
+        t.cwd
+            .as_deref()
+            .is_some_and(|cwd| crate::root::same_folder(cwd, &crate::root::scratch_root()))
+    });
     let rows: Vec<AnyElement> = c
         .places
         .iter()
@@ -54,7 +60,7 @@ pub fn menu(
                 .cursor_pointer()
                 .when(Some(space) == here, |d| d.bg(colors::ink(0.07)))
                 .hover(|s| s.bg(colors::ink(0.05)))
-                .child(crate::sidebar::tag(&p.name, false))
+                .child(crate::sidebar::tag(&p.name, p.look.clone(), false))
                 .child(
                     div()
                         .flex_1()
@@ -75,6 +81,36 @@ pub fn menu(
                 .into_any_element()
         })
         .collect();
+    let none = div()
+        .id("place-none")
+        .flex()
+        .items_center()
+        .gap(px(9.))
+        .px(px(10.))
+        .py(px(6.))
+        .rounded(px(8.))
+        .cursor_pointer()
+        .when(scratch, |d| d.bg(colors::ink(0.07)))
+        .hover(|s| s.bg(colors::ink(0.05)))
+        .child(icon("message-square", 14., colors::text2()))
+        .child(
+            div()
+                .flex_1()
+                .text_size(px(12.5))
+                .text_color(colors::text1())
+                .child("No project"),
+        )
+        .when(scratch, |d| d.child(icon("check", 13., colors::text2())))
+        .on_click(cx.listener(|c, _: &ClickEvent, _, cx| {
+            c.places_menu = None;
+            cx.emit(ComposerEvent::NoProject);
+            cx.notify();
+        }));
+    let open = if rows.is_empty() {
+        "Open a folder..."
+    } else {
+        "Open another folder..."
+    };
     let other = div()
         .id("place-other")
         .flex()
@@ -90,7 +126,7 @@ pub fn menu(
             div()
                 .text_size(px(12.5))
                 .text_color(colors::text1())
-                .child("Open another folder..."),
+                .child(open),
         )
         .on_click(cx.listener(|c, _: &ClickEvent, _, cx| {
             c.places_menu = None;
@@ -114,6 +150,7 @@ pub fn menu(
             )
             .child(widgets::menu_rule())
         })
+        .when(!c.remote(), |d| d.child(none))
         .child(other)
         .into_any_element();
     let close = cx.listener(|c, _: &(), _, cx| {

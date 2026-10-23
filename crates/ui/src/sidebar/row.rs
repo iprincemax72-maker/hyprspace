@@ -7,11 +7,13 @@
 
 use gpui::{
     AnyElement, App, ClickEvent, Context, DragMoveEvent, FontWeight, Hsla, IntoElement,
-    MouseButton, Pixels, SharedString, Transformation, canvas, div, linear_color_stop,
-    linear_gradient, percentage, prelude::*, relative,
+    MouseButton, ObjectFit, Pixels, SharedString, StyledImage, Transformation, canvas, div, img,
+    linear_color_stop, linear_gradient, percentage, prelude::*, relative,
 };
 use hyprspace_proto::git::WorktreeAction;
-use hyprspace_proto::{Agent, Pane, Thread, ThreadKind};
+use hyprspace_proto::{Agent, Pane, SpaceIcon, Thread, ThreadKind};
+
+use super::Look;
 
 use super::card::RowCard;
 use crate::workbench::PaneDrag;
@@ -100,10 +102,39 @@ fn initials(name: &str) -> String {
         .collect()
 }
 
-/// A project's tag: its initials on a small square in the project's own color. A `dim` one sits
-/// on a shelf.
-pub(crate) fn tag(name: &str, dim: bool) -> AnyElement {
-    let (fill, ink) = colors::tag(name);
+/// A project's tag: its own icon, or its initials on a small square in the project's own color.
+/// A `dim` one sits on a shelf.
+pub(crate) fn tag(name: &str, look: Look, dim: bool) -> AnyElement {
+    let hue = look.hue;
+    match look.icon {
+        None => letters(name, hue, dim),
+        Some(SpaceIcon::Emoji { emoji }) => div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .justify_center()
+            .size(px(16.))
+            .text_size(px(12.5))
+            .line_height(px(16.))
+            .when(dim, |d| d.opacity(0.5))
+            .child(emoji)
+            .into_any_element(),
+        Some(SpaceIcon::Image { path }) => {
+            let name = name.to_string();
+            img(path)
+                .flex_none()
+                .size(px(16.))
+                .rounded(px(4.))
+                .object_fit(ObjectFit::Contain)
+                .when(dim, |d| d.opacity(0.5))
+                .with_fallback(move || letters(&name, hue, dim))
+                .into_any_element()
+        }
+    }
+}
+
+fn letters(name: &str, hue: Option<u16>, dim: bool) -> AnyElement {
+    let (fill, ink) = colors::tag(name, hue);
     div()
         .flex()
         .flex_none()
@@ -326,6 +357,7 @@ impl Root {
         Some(RowCard {
             title: t.title.clone().into(),
             space: space.name.clone().into(),
+            look: self.look_of(space),
             machine: space
                 .machine
                 .as_deref()
@@ -432,6 +464,12 @@ impl Root {
                     .collect(),
             });
         }
+        if let Some(s) = space.filter(|_| !mirrored) {
+            menu.push(MenuEntry::item(
+                "Icon and color...",
+                Action::ProjectIcon(s.id),
+            ));
+        }
         let mut copy = vec![
             MenuEntry::item("Title", Action::CopyTitle(id)),
             MenuEntry::item("Folder path", Action::CopyPath(id)),
@@ -494,13 +532,14 @@ impl Root {
             n => Some(format!("{n} subagents running")),
         };
         let agent = t.agent().map(|l| l.agent);
-        let (space, machine) = self
+        let (space, machine, look) = self
             .state
             .thread(id)
             .map(|(s, _)| {
                 (
                     s.name.clone(),
                     s.machine.as_deref().map(|m| self.machines.name(m)),
+                    self.look_of(s),
                 )
             })
             .unwrap_or_default();
@@ -639,14 +678,17 @@ impl Root {
                     .items_center()
                     .gap(px(7.))
                     .min_w_0()
-                    .child(tag(&space, false))
+                    .child(tag(&space, look.clone(), false))
                     .child(
                         div()
                             .flex_1()
                             .min_w_0()
                             .truncate()
                             .text_size(px(11.5))
-                            .text_color(colors::text3())
+                            .text_color(match look.hue {
+                                Some(h) => colors::tag(&space, Some(h)).1,
+                                None => colors::text3(),
+                            })
                             .child(space.clone()),
                     )
                     .when_some(machine, |d, name| {
@@ -772,10 +814,10 @@ impl Root {
         let id = t.id;
         let selected = self.screen == Screen::Thread(id);
         let group: SharedString = format!("shelved-{id}").into();
-        let space = self
+        let (space, look) = self
             .state
             .thread(id)
-            .map(|(s, _)| s.name.clone())
+            .map(|(s, _)| (s.name.clone(), self.look_of(s)))
             .unwrap_or_default();
         let when = match t.snooze {
             Some(snooze) => Some(self.wake_text(snooze)),
@@ -794,7 +836,7 @@ impl Root {
             .cursor_pointer()
             .when(selected, |d| d.bg(colors::surface3()))
             .when(!selected, |d| d.hover(|s| s.bg(row_hover())))
-            .child(tag(&space, true))
+            .child(tag(&space, look, true))
             .child(match self.rename_box(id, px(12.5), FontWeight::NORMAL) {
                 Some(rename) => div().flex_1().min_w_0().child(rename),
                 None => div()

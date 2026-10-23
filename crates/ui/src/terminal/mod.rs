@@ -115,6 +115,7 @@ impl TerminalView {
         cwd: PathBuf,
         run: Option<Launch>,
         prompt: Option<String>,
+        sign_in: Option<Agent>,
         cx: &mut Context<Self>,
     ) -> Self {
         let (cols, rows) = (80, 24);
@@ -147,6 +148,7 @@ impl TerminalView {
             rows,
             run,
             prompt,
+            sign_in,
         });
         let blinker = cx.spawn(async move |this, cx| {
             loop {

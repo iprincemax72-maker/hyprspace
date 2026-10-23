@@ -20,6 +20,7 @@ use crate::zoom::px;
 pub enum Cmd {
     NewThread,
     NewTerminal,
+    NoProject,
     OpenFolder,
     Thread(u64),
     ToggleDock,
@@ -53,6 +54,12 @@ impl Root {
                 "New terminal",
                 Glyph::Icon("square-terminal"),
                 Cmd::NewTerminal,
+            ),
+            Item::new(
+                "Start",
+                "New thread without a project",
+                Glyph::Icon("message-square"),
+                Cmd::NoProject,
             ),
             Item::new(
                 "Start",
@@ -338,6 +345,7 @@ impl Root {
                 Some(s) => self.act(Action::NewTerminal(s), window, cx),
                 None => self.pick_thread_folder(window, cx),
             },
+            Cmd::NoProject => self.no_project(window, cx),
             Cmd::OpenFolder => self.pick_thread_folder(window, cx),
             Cmd::Thread(id) => self.open_thread(id, window, cx),
             Cmd::ToggleDock => self.toggle_dock(&crate::workbench::ToggleDock, window, cx),

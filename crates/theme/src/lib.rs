@@ -134,15 +134,18 @@ pub fn brand(agent: &str) -> (Color, Color) {
     }
 }
 
-/// A project's tag, after T3 Code's: the fill and lettering of the small square that carries its
-/// initials. The hue comes from the project's name, so a project keeps its color from run to run,
-/// at a fixed lightness for each side so every tag reads the same.
-pub fn tag(name: &str, dark: bool) -> (Color, Color) {
+/// The hue a project's name gives its tag, so a project keeps its color from run to run.
+pub fn name_hue(name: &str) -> f64 {
     // FNV-1a: stable across runs and builds, unlike the standard hasher
     let h = name.bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
         (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
     });
-    let hue = (h % 360) as f64;
+    (h % 360) as f64
+}
+
+/// A project's tag, after T3 Code's: the fill and lettering of the small square that carries its
+/// initials, at a fixed lightness for each side so every tag reads the same.
+pub fn tag(hue: f64, dark: bool) -> (Color, Color) {
     if dark {
         (oklch(0.36, 0.075, hue), oklch(0.88, 0.1, hue))
     } else {

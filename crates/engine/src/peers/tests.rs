@@ -81,6 +81,7 @@ fn a_computer_pairs_drives_a_terminal_reads_a_journal_and_a_folder() {
         rows: 30,
         run: None,
         prompt: None,
+        sign_in: None,
     });
     // ConPTY asks where the cursor is before the shell starts; the host UI's emulator answers
     if cfg!(windows) {
@@ -134,6 +135,7 @@ fn a_computer_pairs_drives_a_terminal_reads_a_journal_and_a_folder() {
         rows: 25,
         run: None,
         prompt: None,
+        sign_in: None,
     });
     cc.send(Command::WriteTerminal {
         id: term,

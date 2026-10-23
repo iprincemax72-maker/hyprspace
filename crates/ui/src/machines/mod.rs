@@ -502,7 +502,9 @@ impl Root {
                     r.close_folder_picker(window, cx);
                     r.open_on(peer.clone(), path, window, cx);
                 }
-                PickerEvent::System | PickerEvent::Close => r.close_folder_picker(window, cx),
+                PickerEvent::System | PickerEvent::NoProject | PickerEvent::Close => {
+                    r.close_folder_picker(window, cx)
+                }
             },
         )
         .detach();

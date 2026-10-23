@@ -581,6 +581,7 @@ impl Terminals {
         size: (u16, u16),
         run: Option<Launch>,
         prompt: Option<String>,
+        sign_in: Option<Agent>,
     ) -> anyhow::Result<()> {
         let mut spawn = Spawn {
             cwd: cwd.clone(),
@@ -621,6 +622,14 @@ impl Terminals {
             }
             let settings = settings.as_deref().filter(|_| claude);
             spawn.input = Some(command(run, settings, has_transcript, as_arg));
+        } else if let Some(agent) = sign_in {
+            spawn.input = Some(
+                match agent {
+                    Agent::Claude => "claude auth login",
+                    Agent::Codex => "codex login",
+                }
+                .into(),
+            );
         }
         let new_codex = run
             .as_ref()

@@ -1,6 +1,6 @@
 use gpui::{
-    AnyElement, ClickEvent, Context, FontWeight, IntoElement, SharedString, div, prelude::*,
-    relative,
+    AnyElement, AppContext, ClickEvent, Context, Entity, Focusable, FontWeight, IntoElement,
+    MouseButton, SharedString, Subscription, Window, div, prelude::*, relative,
 };
 use hyprspace_proto::{Answer, Tool};
 use serde_json::Value;
@@ -8,6 +8,7 @@ use serde_json::Value;
 use super::TranscriptView;
 use super::model::Item;
 use crate::assets::icon;
+use crate::input::{InputEvent, TextInput};
 use crate::zoom::px;
 use crate::{colors, markdown, widgets};
 
@@ -96,32 +97,148 @@ pub fn todos(input: &str) -> Vec<Todo> {
         .collect()
 }
 
-pub fn answers(qs: &[Question], picks: &[Vec<usize>]) -> Option<Vec<(String, String)>> {
+/// The text field of a question's Other choice, open on one question at a time.
+pub struct Other {
+    request: String,
+    question: usize,
+    input: Entity<TextInput>,
+    _sub: Subscription,
+}
+
+impl Other {
+    pub fn is_for(&self, request: &str) -> bool {
+        self.request == request
+    }
+}
+
+/// What one question's picks say: the labels picked, and the typed answer when Other, one past
+/// the last option, is picked too.
+fn said(q: &Question, picked: &[usize], other: &str) -> String {
+    let mut parts: Vec<&str> = picked
+        .iter()
+        .filter_map(|&o| q.options.get(o).map(|(l, _)| l.as_str()))
+        .collect();
+    if picked.contains(&q.options.len()) && !other.trim().is_empty() {
+        parts.push(other.trim());
+    }
+    parts.join(", ")
+}
+
+/// Each question with what its picks say so far, answered or not.
+pub fn so_far(qs: &[Question], picks: &[Vec<usize>], others: &[String]) -> Vec<(String, String)> {
     qs.iter()
         .enumerate()
         .map(|(i, q)| {
-            let chosen: Vec<&str> = picks
-                .get(i)
-                .into_iter()
-                .flatten()
-                .filter_map(|&o| q.options.get(o).map(|(l, _)| l.as_str()))
-                .collect();
-            (!chosen.is_empty()).then(|| (q.text.clone(), chosen.join(", ")))
+            let picked = picks.get(i).map_or(&[][..], |p| p.as_slice());
+            let other = others.get(i).map_or("", |o| o.as_str());
+            (q.text.clone(), said(q, picked, other))
         })
         .collect()
 }
 
-pub fn chosen(q: &Question, said: &str) -> Vec<usize> {
-    if let Some(i) = q.options.iter().position(|(label, _)| label == said) {
-        return vec![i];
-    }
-    let said = format!(", {said}, ");
-    q.options
-        .iter()
-        .enumerate()
-        .filter(|(_, (label, _))| said.contains(&format!(", {label}, ")))
-        .map(|(i, _)| i)
+/// The answers to send, once every question has one.
+pub fn answers(
+    qs: &[Question],
+    picks: &[Vec<usize>],
+    others: &[String],
+) -> Option<Vec<(String, String)>> {
+    so_far(qs, picks, others)
+        .into_iter()
+        .map(|(q, a)| (!a.is_empty()).then_some((q, a)))
         .collect()
+}
+
+impl TranscriptView {
+    /// Picks a question's Other choice and opens its text field.
+    pub(super) fn pick_other(
+        &mut self,
+        request: &str,
+        question: usize,
+        ix: usize,
+        multi: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let was = self
+            .picks
+            .get(request)
+            .and_then(|p| p.get(question))
+            .is_some_and(|c| c.contains(&ix));
+        self.pick_option(request, question, ix, multi, cx);
+        if multi && was {
+            self.other = None;
+            return;
+        }
+        let open = self
+            .other
+            .as_ref()
+            .filter(|o| o.request == request && o.question == question)
+            .map(|o| o.input.clone());
+        let input = open.unwrap_or_else(|| {
+            let text = self
+                .others
+                .get(request)
+                .and_then(|o| o.get(question))
+                .cloned()
+                .unwrap_or_default();
+            let input = cx.new(|cx| {
+                let mut i = TextInput::new("Your answer", false, cx);
+                i.set_text(text, cx);
+                i
+            });
+            let key = request.to_string();
+            let sub = cx.subscribe(&input, move |v, input, e: &InputEvent, cx| match e {
+                InputEvent::Changed => {
+                    let text = input.read(cx).text().to_string();
+                    let typed = v.others.entry(key.clone()).or_default();
+                    if typed.len() <= question {
+                        typed.resize(question + 1, String::new());
+                    }
+                    typed[question] = text;
+                    cx.notify();
+                }
+                InputEvent::Submit => v.submit_other(cx),
+                _ => {}
+            });
+            self.other = Some(Other {
+                request: request.to_string(),
+                question,
+                input: input.clone(),
+                _sub: sub,
+            });
+            input
+        });
+        window.focus(&input.focus_handle(cx), cx);
+    }
+
+    /// Enter in an Other field: the next question, or the answers once the last one has one.
+    fn submit_other(&mut self, cx: &mut Context<Self>) {
+        let Some(request) = self.other.as_ref().map(|o| o.request.clone()) else {
+            return;
+        };
+        let Some(input) = self.model.items.iter().find_map(|i| match i {
+            Item::Approval {
+                request: r,
+                tool,
+                answer: None,
+                ..
+            } if *r == request => named(tool).map(|(_, input)| input.to_string()),
+            _ => None,
+        }) else {
+            return;
+        };
+        let qs = questions(&input);
+        let step = self.steps.get(&request).copied().unwrap_or(0);
+        let picks = self.picks.get(&request).cloned().unwrap_or_default();
+        let others = self.others.get(&request).cloned().unwrap_or_default();
+        if step + 1 < qs.len() {
+            if picks.get(step).is_some_and(|p| !p.is_empty()) {
+                self.show_question(&request, step + 1, cx);
+            }
+        } else if let Some(a) = answers(&qs, &picks, &others) {
+            self.answer_with(request, Answer::Allow, a, cx);
+        }
+    }
 }
 
 fn frame(pending: bool) -> gpui::Div {
@@ -172,25 +289,13 @@ pub fn question_card(
     cx: &mut Context<TranscriptView>,
 ) -> AnyElement {
     let qs = questions(input);
-    let pending = answer.is_none() && !expired;
-    let picks: Vec<Vec<usize>> = match v.answered.get(request).filter(|_| !pending) {
-        Some(given) => qs
-            .iter()
-            .map(|q| {
-                let said = given
-                    .iter()
-                    .find(|(text, _)| *text == q.text)
-                    .map(|(_, a)| a.as_str())
-                    .unwrap_or_default();
-                chosen(q, said)
-            })
-            .collect(),
-        None => v.picks.get(request).cloned().unwrap_or_default(),
-    };
-    if pending {
-        asking(v, request, &qs, &picks, cx)
+    if answer.is_none() && !expired {
+        let picks = v.picks.get(request).cloned().unwrap_or_default();
+        let others = v.others.get(request).cloned().unwrap_or_default();
+        asking(v, request, &qs, &picks, &others, cx)
     } else {
-        asked(&qs, &picks, answer)
+        let given = v.answered.get(request).cloned().unwrap_or_default();
+        asked(&qs, &given, answer)
     }
 }
 
@@ -199,6 +304,7 @@ fn asking(
     request: &str,
     qs: &[Question],
     picks: &[Vec<usize>],
+    others: &[String],
     cx: &mut Context<TranscriptView>,
 ) -> AnyElement {
     let step = v
@@ -272,8 +378,11 @@ fn asking(
                 )
             }),
     );
-    card = card.child(div().flex().flex_col().gap(px(2.)).children(
-        q.options.iter().enumerate().map(|(oi, (label, about))| {
+    let options = div()
+        .flex()
+        .flex_col()
+        .gap(px(2.))
+        .children(q.options.iter().enumerate().map(|(oi, (label, about))| {
             let on = chosen.contains(&oi);
             let request = request.to_string();
             let multi = q.multi;
@@ -323,10 +432,90 @@ fn asking(
                 .on_click(cx.listener(move |v, _: &ClickEvent, _, cx| {
                     v.pick_option(&request, step, oi, multi, cx)
                 }))
-        }),
-    ));
+        }));
+    let other_ix = q.options.len();
+    let other_on = chosen.contains(&other_ix);
+    let typed = others.get(step).cloned().unwrap_or_default();
+    let field = v
+        .other
+        .as_ref()
+        .filter(|o| other_on && o.request == request && o.question == step)
+        .map(|o| o.input.clone());
+    let other = {
+        let request = request.to_string();
+        let multi = q.multi;
+        div()
+            .id(SharedString::from(format!("q-{request}-{step}-other")))
+            .flex()
+            .items_center()
+            .gap(px(10.))
+            .px(px(10.))
+            .py(px(8.))
+            .rounded(px(8.))
+            .cursor_pointer()
+            .when(other_on, |d| d.bg(colors::ink(0.07)))
+            .when(!other_on, |d| d.hover(|s| s.bg(colors::ink(0.04))))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .child(
+                        div()
+                            .text_size(px(13.))
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(if other_on {
+                                colors::text1()
+                            } else {
+                                colors::text2()
+                            })
+                            .child("Other"),
+                    )
+                    .child(match field {
+                        Some(input) => div()
+                            .h(px(28.))
+                            .flex()
+                            .items_center()
+                            .px(px(8.))
+                            .rounded(px(6.))
+                            .border_1()
+                            .border_color(colors::border2())
+                            .bg(colors::bg())
+                            .text_size(px(13.))
+                            .text_color(colors::text1())
+                            .cursor_text()
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                            .child(input)
+                            .into_any_element(),
+                        None => div()
+                            .text_size(px(12.))
+                            .text_color(colors::text3())
+                            .child(SharedString::from(if typed.trim().is_empty() {
+                                "Type your own answer".to_string()
+                            } else {
+                                typed.clone()
+                            }))
+                            .into_any_element(),
+                    }),
+            )
+            .child(
+                div()
+                    .flex_none()
+                    .size(px(16.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .when(other_on, |d| d.child(icon("check", 14., colors::accent()))),
+            )
+            .on_click(cx.listener(move |v, _: &ClickEvent, window, cx| {
+                v.pick_other(&request, step, other_ix, multi, window, cx)
+            }))
+    };
+    card = card.child(options.child(other));
     let go = if last {
-        let ready = answers(qs, picks);
+        let ready = answers(qs, picks, others);
         let request = request.to_string();
         widgets::primary(("q-answer", v.id.0), "Answer")
             .when(ready.is_none(), |d| d.opacity(0.5))
@@ -355,12 +544,25 @@ fn asking(
                 v.answer_with(request.clone(), Answer::Deny, Vec::new(), cx)
             }))
     };
-    card.child(div().flex().gap_2().child(go).child(skip))
+    // turned down with the answers so far, which the harness sends as a wish to talk it over
+    let chat = {
+        let request = request.to_string();
+        let so_far = so_far(qs, picks, others);
+        widgets::button(("q-chat", v.id.0), "Chat about this")
+            .h(px(26.))
+            .px(px(10.))
+            .on_click(cx.listener(move |v, _: &ClickEvent, window, cx| {
+                v.answer_with(request.clone(), Answer::Deny, so_far.clone(), cx);
+                window.focus(&v.input.focus_handle(cx), cx);
+            }))
+    };
+    card.child(div().flex().gap_2().child(go).child(skip).child(chat))
         .into_any_element()
 }
 
-fn asked(qs: &[Question], picks: &[Vec<usize>], answer: Option<Answer>) -> AnyElement {
+fn asked(qs: &[Question], given: &[(String, String)], answer: Option<Answer>) -> AnyElement {
     let state = match answer {
+        Some(Answer::Deny) if !given.is_empty() => "Chose to talk it over",
         Some(Answer::Deny) => "Skipped",
         Some(_) => "Answered",
         None => "Not answered",
@@ -372,13 +574,12 @@ fn asked(qs: &[Question], picks: &[Vec<usize>], answer: Option<Answer>) -> AnyEl
     frame(false)
         .gap(px(10.))
         .child(heading("circle-help", colors::text3(), &title, Some(state)))
-        .children(qs.iter().enumerate().map(|(qi, q)| {
-            let said: Vec<&str> = picks
-                .get(qi)
-                .into_iter()
-                .flatten()
-                .filter_map(|&o| q.options.get(o).map(|(l, _)| l.as_str()))
-                .collect();
+        .children(qs.iter().map(|q| {
+            let said = given
+                .iter()
+                .find(|(text, _)| *text == q.text)
+                .map(|(_, a)| a.as_str())
+                .unwrap_or_default();
             let reply = if said.is_empty() {
                 div()
                     .text_size(px(13.))
@@ -396,7 +597,7 @@ fn asked(qs: &[Question], picks: &[Vec<usize>], answer: Option<Answer>) -> AnyEl
                             .text_size(px(13.))
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(colors::text1())
-                            .child(SharedString::from(said.join(", "))),
+                            .child(SharedString::from(said.to_string())),
                     )
             };
             div()
@@ -546,9 +747,9 @@ mod tests {
         );
         assert_eq!(qs.len(), 2);
         assert!(qs[1].multi);
-        assert_eq!(answers(&qs, &[vec![1]]), None);
+        assert_eq!(answers(&qs, &[vec![1]], &[]), None);
         assert_eq!(
-            answers(&qs, &[vec![1], vec![0, 1]]),
+            answers(&qs, &[vec![1], vec![0, 1]], &[]),
             Some(vec![
                 ("Which db?".into(), "SQLite".into()),
                 ("Extras?".into(), "Auth, Logs".into())
@@ -557,19 +758,29 @@ mod tests {
     }
 
     #[test]
-    fn finds_the_pick_when_a_label_has_a_comma() {
+    fn other_sends_what_was_typed() {
         let qs = questions(
-            r#"{"questions":[{"question":"How?","multiSelect":true,
-            "options":[{"label":"Remake all"},{"label":"Quick fix now, remake later"},
-            {"label":"Slaps only"}]}]}"#,
+            r#"{"questions":[{"question":"Which db?","multiSelect":false,
+            "options":[{"label":"Postgres"},{"label":"SQLite"}]},
+            {"question":"Extras?","multiSelect":true,"options":[{"label":"Auth"}]}]}"#,
         );
-        assert_eq!(chosen(&qs[0], "Quick fix now, remake later"), vec![1]);
+        let typed = vec!["MySQL".to_string(), " Rate limits ".to_string()];
+        // Other is one past the last option, and an empty one is no answer
+        assert_eq!(answers(&qs, &[vec![2], vec![1]], &[String::new()]), None);
         assert_eq!(
-            chosen(&qs[0], "Remake all, Quick fix now, remake later"),
-            vec![0, 1]
+            answers(&qs, &[vec![2], vec![0, 1]], &typed),
+            Some(vec![
+                ("Which db?".into(), "MySQL".into()),
+                ("Extras?".into(), "Auth, Rate limits".into())
+            ])
         );
-        assert_eq!(chosen(&qs[0], "Slaps only"), vec![2]);
-        assert!(chosen(&qs[0], "").is_empty());
+        assert_eq!(
+            so_far(&qs, &[vec![1]], &[]),
+            vec![
+                ("Which db?".into(), "SQLite".into()),
+                ("Extras?".into(), String::new())
+            ]
+        );
     }
 
     #[test]

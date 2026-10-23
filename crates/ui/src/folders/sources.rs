@@ -30,33 +30,40 @@ struct Source {
     icon: &'static str,
     title: &'static str,
     about: &'static str,
-    stage: Stage,
+    /// None is No project, which picks no folder at all.
+    stage: Option<Stage>,
 }
 
-const SOURCES: [Source; 4] = [
+const SOURCES: [Source; 5] = [
     Source {
         icon: "folder-plus",
         title: "New project",
         about: "Start an empty git repository from a name",
-        stage: Stage::Create,
+        stage: Some(Stage::Create),
     },
     Source {
         icon: "folder-open",
         title: "Local folder",
         about: "Browse a folder on this computer",
-        stage: Stage::Browse,
+        stage: Some(Stage::Browse),
     },
     Source {
         icon: "link",
         title: "Git URL",
         about: "Clone from a remote URL",
-        stage: Stage::Clone { github: false },
+        stage: Some(Stage::Clone { github: false }),
     },
     Source {
         icon: "github",
         title: "GitHub repository",
         about: "Clone owner/repo from GitHub",
-        stage: Stage::Clone { github: true },
+        stage: Some(Stage::Clone { github: true }),
+    },
+    Source {
+        icon: "message-square",
+        title: "No project",
+        about: "Start a thread in a folder of its own",
+        stage: None,
     },
 ];
 
@@ -114,6 +121,7 @@ impl FolderPicker {
     pub(super) fn sources_shown(&self, cx: &gpui::App) -> Vec<Row> {
         let q = self.query.read(cx).text().trim().to_lowercase();
         let sources = (0..SOURCES.len())
+            .filter(|&i| SOURCES[i].stage.is_some() || self.machine.is_none())
             .filter(|&i| {
                 q.is_empty()
                     || SOURCES[i].title.to_lowercase().contains(&q)
@@ -156,6 +164,13 @@ impl FolderPicker {
         cx.notify();
     }
 
+    fn pick_source(&mut self, i: usize, cx: &mut Context<Self>) {
+        match SOURCES[i].stage {
+            Some(stage) => self.choose(stage, cx),
+            None => cx.emit(PickerEvent::NoProject),
+        }
+    }
+
     pub(super) fn reveal_pick(&self, cx: &gpui::App) {
         let shown = self.sources_shown(cx);
         let sources = shown.iter().filter(|r| matches!(r, Row::Source(_))).count();
@@ -165,7 +180,7 @@ impl FolderPicker {
 
     pub(super) fn choose_picked(&mut self, cx: &mut Context<Self>) {
         match self.sources_shown(cx).get(self.pick) {
-            Some(Row::Source(i)) => self.choose(SOURCES[*i].stage, cx),
+            Some(Row::Source(i)) => self.pick_source(*i, cx),
             Some(Row::Project(i)) => cx.emit(PickerEvent::Open(self.projects[*i].1.clone())),
             None => {}
         }
@@ -296,7 +311,7 @@ impl FolderPicker {
                         projects = true;
                         body = body.child(label("Projects"));
                     }
-                    let (name, path) = &self.projects[i];
+                    let (name, path, look) = &self.projects[i];
                     let on = row == self.pick;
                     let path = path.clone();
                     body = body.child(
@@ -319,7 +334,7 @@ impl FolderPicker {
                             .on_click(cx.listener(move |_, _: &ClickEvent, _, cx| {
                                 cx.emit(PickerEvent::Open(path.clone()))
                             }))
-                            .child(crate::sidebar::tag(name, false))
+                            .child(crate::sidebar::tag(name, look.clone(), false))
                             .child(
                                 div()
                                     .min_w_0()
@@ -334,7 +349,6 @@ impl FolderPicker {
             };
             let s = &SOURCES[i];
             let on = row == self.pick;
-            let stage = s.stage;
             body = body.child(
                 div()
                     .id(("source", i))
@@ -352,7 +366,7 @@ impl FolderPicker {
                             cx.notify();
                         }
                     }))
-                    .on_click(cx.listener(move |p, _: &ClickEvent, _, cx| p.choose(stage, cx)))
+                    .on_click(cx.listener(move |p, _: &ClickEvent, _, cx| p.pick_source(i, cx)))
                     .child(icon(
                         s.icon,
                         16.,

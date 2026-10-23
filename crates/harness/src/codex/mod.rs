@@ -408,6 +408,16 @@ impl Actor {
                         Answer::AllowAlways => (id, json!({ "decision": "acceptForSession" })),
                         Answer::Deny => (id, json!({ "decision": "decline" })),
                     },
+                    // a turned-down question that still carries answers is "Chat about this"
+                    Some(Asked::Questions(id, ids))
+                        if answer == Answer::Deny && !answers.is_empty() =>
+                    {
+                        let chat: Vec<_> = answers
+                            .iter()
+                            .map(|(q, _)| (q.clone(), CHAT.to_string()))
+                            .collect();
+                        (id, replies(&ids, &chat))
+                    }
                     Some(Asked::Questions(id, ids)) => (id, replies(&ids, &answers)),
                     None => return,
                 };
@@ -724,6 +734,7 @@ fn said(content: &Value) -> String {
 }
 
 const IN_A_MESSAGE: &str = "I'll answer in a message";
+const CHAT: &str = "The user wants to talk this question over before answering. Ask them what they would like to clarify.";
 
 fn questions(params: &Value) -> (Tool, Vec<(String, String)>) {
     let mut ids = Vec::new();

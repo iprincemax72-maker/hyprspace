@@ -13,7 +13,11 @@
 
 mod card;
 mod drag;
+mod icon;
+mod icon_picker;
 mod row;
+pub(crate) use icon::Look;
+pub(crate) use icon_picker::IconPicker;
 pub(crate) use row::tag;
 
 use std::cell::{Cell, RefCell};

@@ -123,6 +123,26 @@ pub(crate) fn answer_line(request_id: &str, input: Value, rules: Value, answer: 
     control_response(request_id, response)
 }
 
+/// "Chat about this" on a question: the call is turned down in the words Claude Code uses for it,
+/// with what was picked so far, so Claude asks what to clarify instead of guessing.
+pub(crate) fn clarify_line(request_id: &str, answers: &[(String, String)]) -> String {
+    let asked: Vec<String> = answers
+        .iter()
+        .map(|(q, a)| match a.as_str() {
+            "" => format!("- \"{q}\"\n  (No answer provided)"),
+            a => format!("- \"{q}\"\n  Answer: {a}"),
+        })
+        .collect();
+    let message = format!(
+        "The user wants to clarify these questions.\nThis means they may have additional information, context or questions for you.\nTake their response into account and then reformulate the questions if appropriate.\nStart by asking them what they would like to clarify.\n\nQuestions asked:\n{}",
+        asked.join("\n")
+    );
+    control_response(
+        request_id,
+        json!({ "behavior": "deny", "message": message }),
+    )
+}
+
 pub(crate) fn control_line(request_id: &str, request: Value) -> String {
     json!({
         "type": "control_request",
@@ -204,6 +224,10 @@ mod tests {
         assert_eq!(v["response"]["response"]["updatedPermissions"], rules);
         let v = parse(&answer_line("r2", Value::Null, Value::Null, Answer::Deny));
         assert_eq!(v["response"]["response"]["behavior"], "deny");
+        let v = parse(&clarify_line("r3", &[("Which db?".into(), String::new())]));
+        assert_eq!(v["response"]["response"]["behavior"], "deny");
+        let message = v["response"]["response"]["message"].as_str().unwrap();
+        assert!(message.contains("- \"Which db?\"\n  (No answer provided)"));
         let v = parse(&interrupt_line("i1"));
         assert_eq!(v["request"]["subtype"], "interrupt");
     }

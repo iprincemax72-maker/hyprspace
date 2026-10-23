@@ -218,11 +218,15 @@ fn menu_line(
 impl Render for Root {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.look_for_hosts();
+        self.look_up_icons(cx);
         if let Some(space) = self.work.compose.take() {
             self.compose(Some(space), window, cx);
         }
         if let Some(thread) = self.work.open.take() {
             self.open_thread(thread, window, cx);
+        }
+        if let Some(thread) = self.work.sign_in.take() {
+            self.sign_in(thread, window, cx);
         }
         self.show_terminals(cx);
         let main: AnyElement = if !self.loaded {
@@ -243,6 +247,7 @@ impl Render for Root {
         let card = self.hover_card(window, cx);
         let viewer = self.viewer_card(window, cx);
         let snooze = self.snooze_popup(window, cx);
+        let icon_picker = self.icon_popup(window, cx);
         let toast = self.undo_toast(cx);
         let palette = self.palette_overlay(window, cx);
         let folders = self.folder_overlay(window, cx);
@@ -328,6 +333,7 @@ impl Render for Root {
             .children(menu)
             .children(card)
             .children(snooze)
+            .children(icon_picker)
             .children(toast)
             .children(palette)
             .children(folders)

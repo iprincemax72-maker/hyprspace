@@ -50,6 +50,9 @@ how Claude is driven.
   `priority: "next"` while a tool call is open, because `now` aborts the tool.
 - **Interrupts give up after 5 seconds.** Then the CLI is killed and the session reports `Failed`.
   Both adapters take the patience as `with_patience`, so tests run at 300 ms.
+- **"Chat about this" is a Deny that carries answers.** A plain Skip is a Deny with none. Claude
+  gets its own clarify message with the answers so far, Codex gets a note as each answer. It
+  needs no new `Answer` variant, which the phone would fail to read in the journal.
 - **Approvals are never auto-answered.** The user picks a permission mode, and Bypass is the way to
   skip the questions; allowing everything under Ask would make the mode a lie.
 - **Resume pins Claude's folder.** `claude --resume <id>` only finds a conversation from the folder

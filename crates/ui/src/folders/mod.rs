@@ -36,6 +36,8 @@ pub enum PickerEvent {
     Open(PathBuf),
     /// Hand over to the system's folder dialog.
     System,
+    /// Start a thread with no project of its own.
+    NoProject,
     Close,
 }
 
@@ -119,7 +121,7 @@ pub struct FolderPicker {
     sel: usize,
     scroll: ScrollHandle,
     pub(crate) back: Option<FocusHandle>,
-    projects: Vec<(String, PathBuf)>,
+    projects: Vec<(String, PathBuf, crate::sidebar::Look)>,
     list_scroll: ScrollHandle,
     stage: Stage,
     query: Entity<TextInput>,
@@ -222,7 +224,7 @@ impl FolderPicker {
         p
     }
 
-    pub fn set_projects(&mut self, projects: Vec<(String, PathBuf)>) {
+    pub fn set_projects(&mut self, projects: Vec<(String, PathBuf, crate::sidebar::Look)>) {
         self.projects = projects;
     }
 

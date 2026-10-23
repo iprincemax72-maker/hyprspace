@@ -106,8 +106,10 @@ pub fn ink(a: f32) -> Hsla {
 }
 
 /// A project's tag colors, fill and lettering, on the side showing now.
-pub fn tag(name: &str) -> (Hsla, Hsla) {
-    let (fill, ink) = hyprspace_theme::tag(name, theme().dark);
+/// A project's tag fill and ink: at its picked hue, else the one its name gives.
+pub fn tag(name: &str, hue: Option<u16>) -> (Hsla, Hsla) {
+    let hue = hue.map_or_else(|| hyprspace_theme::name_hue(name), f64::from);
+    let (fill, ink) = hyprspace_theme::tag(hue, theme().dark);
     (hsla(fill), hsla(ink))
 }
 

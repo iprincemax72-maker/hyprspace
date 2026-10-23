@@ -124,8 +124,11 @@ impl Root {
             .iter()
             .filter(|s| !s.archived && s.machine.is_none())
         {
-            let (lf, li) = hyprspace_theme::tag(&s.name, false);
-            let (df, di) = hyprspace_theme::tag(&s.name, true);
+            let hue = s
+                .hue
+                .map_or_else(|| hyprspace_theme::name_hue(&s.name), f64::from);
+            let (lf, li) = hyprspace_theme::tag(hue, false);
+            let (df, di) = hyprspace_theme::tag(hue, true);
             spaces.push(BoardSpace {
                 id: s.id,
                 tag: vec![lf.0, li.0, df.0, di.0],
